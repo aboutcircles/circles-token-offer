@@ -1,0 +1,27 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+pragma solidity ^0.8.28;
+
+interface IERC20TokenOfferFactory {
+    error AccountScoreProviderShouldHaveAdmin();
+
+    function createERC20TokenOffer(
+        address accountScoreProviderAdmin,
+        address accountScoreProvider,
+        address offerOwner,
+        address offerToken,
+        uint256 tokenPriceInCRC,
+        uint256 offerLimitInCRC,
+        uint256 offerStart,
+        uint256 offerDuration,
+        string memory orgName,
+        address[] memory acceptedCRC
+    ) external returns (address tokenOffer);
+    function createERC20TokenOfferCycle(
+        address admin,
+        address offerToken,
+        uint256 offersStart,
+        uint256 offerDuration,
+        string memory offerName,
+        string memory cycleName
+    ) external returns (address offerCycle);
+}
