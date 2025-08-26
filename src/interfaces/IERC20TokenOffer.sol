@@ -26,7 +26,6 @@ interface IERC20TokenOffer {
     function SCORE_DENOMINATOR() external view returns (uint256);
     function TOKEN() external view returns (address);
     function TOKEN_PRICE_IN_CRC() external view returns (uint256);
-    function acceptedIds(uint256 id) external view returns (bool);
     function depositOfferTokens() external;
     function getAccountOfferLimit(address account) external view returns (uint256);
     function getAvailableAccountOfferLimit(address account) external view returns (uint256);
@@ -40,5 +39,5 @@ interface IERC20TokenOffer {
     function onERC1155Received(address, address from, uint256 id, uint256 value, bytes memory)
         external
         returns (bytes4);
-    function withdrawUnclaimedOfferTokens() external;
+    function withdrawUnclaimedOfferTokens() external returns (uint256);
 }

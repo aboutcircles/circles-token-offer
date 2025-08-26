@@ -6,4 +6,5 @@ interface IAccountScoreProvider {
     function getAccountScore(address account) external view returns (uint256 tier);
     function getTotalAccountScore() external view returns (uint256);
     function finalizeScores() external;
+    function setAccountScores(address offer, address[] memory accounts, uint256[] memory scores) external; // not abtract
 }

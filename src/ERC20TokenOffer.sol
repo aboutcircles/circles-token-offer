@@ -71,8 +71,6 @@ contract ERC20TokenOffer {
 
     bool isOfferTokensDeposited;
 
-    mapping(uint256 id => bool) public acceptedIds;
-
     mapping(address account => uint256 spentAmount) public offerUsage;
 
     /*//////////////////////////////////////////////////////////////
@@ -134,7 +132,6 @@ contract ERC20TokenOffer {
         HUB.registerOrganization(orgName, 0);
         for (uint256 i; i < acceptedCRC.length;) {
             HUB.trust(acceptedCRC[i], type(uint96).max);
-            acceptedIds[uint256(uint160(acceptedCRC[i]))] = true;
             unchecked {
                 ++i;
             }
@@ -182,13 +179,11 @@ contract ERC20TokenOffer {
         emit OfferTokensDeposited(amount);
     }
 
-    function withdrawUnclaimedOfferTokens() external onlyOwner {
+    function withdrawUnclaimedOfferTokens() external onlyOwner returns (uint256 balance) {
         if (OFFER_END > block.timestamp) revert OfferActive();
-        uint256 balance = IERC20(TOKEN).balanceOf(address(this));
-        IERC20(TOKEN).transfer(OWNER, balance);
+        balance = IERC20(TOKEN).balanceOf(address(this));
+        if (balance > 0) IERC20(TOKEN).transfer(OWNER, balance);
     }
-
-    // admin trust function
 
     function _claimOffer(address account, uint256 value) internal {
         uint256 accountLimit = getAccountOfferLimit(account);
@@ -209,14 +204,15 @@ contract ERC20TokenOffer {
 
     // callback
 
-    function onERC1155Received(address, /*operator*/ address from, uint256 id, uint256 value, bytes calldata /*data*/ )
+    function onERC1155Received(address, /*operator*/ address from, uint256 id, uint256 value, bytes calldata data)
         external
         onlyHub
         onlyWhenOfferTokensDeposited
         onlyWhileOfferActive
         returns (bytes4)
     {
-        if (!acceptedIds[id]) revert InvalidTokenId(id);
+        if (!HUB.isTrusted(address(this), address(uint160(id)))) revert InvalidTokenId(id);
+        if (from == OWNER) from = abi.decode(data, (address));
 
         _claimOffer(from, value);
 
@@ -231,17 +227,18 @@ contract ERC20TokenOffer {
         address from,
         uint256[] calldata ids,
         uint256[] calldata values,
-        bytes calldata /*data*/
+        bytes calldata data
     ) external onlyHub onlyWhenOfferTokensDeposited onlyWhileOfferActive returns (bytes4) {
         uint256 totalValue;
         for (uint256 i; i < ids.length; i++) {
-            if (!acceptedIds[ids[i]]) revert InvalidTokenId(ids[i]);
+            if (!HUB.isTrusted(address(this), address(uint160(ids[i])))) revert InvalidTokenId(ids[i]);
             totalValue += values[i];
             unchecked {
                 ++i;
             }
         }
 
+        if (from == OWNER) from = abi.decode(data, (address));
         _claimOffer(from, totalValue);
 
         // transfer to owner

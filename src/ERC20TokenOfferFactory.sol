@@ -51,7 +51,9 @@ contract ERC20TokenOfferFactory {
     ) external returns (address offerCycle) {
         address accountScoreProvider = address(new AccountScoreProvider(admin));
         offerCycle = address(
-            new ERC20TokenOfferCycle(admin, accountScoreProvider, offerToken, offersStart, offerDuration, offerName, cycleName)
+            new ERC20TokenOfferCycle(
+                admin, accountScoreProvider, offerToken, offersStart, offerDuration, offerName, cycleName
+            )
         );
     }
 }
