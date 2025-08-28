@@ -1,14 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.28;
 
-import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {IERC20TokenOfferFactory} from "src/interfaces/IERC20TokenOfferFactory.sol";
 import {IAccountWeightProvider} from "src/interfaces/IAccountWeightProvider.sol";
 import {IERC20TokenOffer} from "src/interfaces/IERC20TokenOffer.sol";
 import {IHub} from "src/interfaces/IHub.sol";
 import {LibString} from "solady/utils/LibString.sol";
+import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
 contract ERC20TokenOfferCycle {
+    using SafeTransferLib for address;
+
     error OnlyAdmin();
     error OnlyHub();
     error OnlyCurrentOffer();
@@ -170,8 +172,8 @@ contract ERC20TokenOfferCycle {
     /// requires token pre-approval
     function depositNextOfferTokens() external onlyAdmin {
         (IERC20TokenOffer nextOffer, uint256 requiredAmount) = getNextOfferAndRequiredTokenAmount();
-        IERC20(OFFER_TOKEN).transferFrom(ADMIN, address(this), requiredAmount);
-        IERC20(OFFER_TOKEN).approve(address(nextOffer), requiredAmount);
+        OFFER_TOKEN.safeTransferFrom(ADMIN, address(this), requiredAmount);
+        OFFER_TOKEN.safeApprove(address(nextOffer), requiredAmount);
 
         nextOffer.depositOfferTokens();
     }
@@ -179,7 +181,7 @@ contract ERC20TokenOfferCycle {
     function withdrawUnclaimedOfferTokens(uint256 offerId) external onlyAdmin {
         IERC20TokenOffer offer = offers[offerId];
         uint256 amount = offer.withdrawUnclaimedOfferTokens();
-        if (amount > 0) IERC20(OFFER_TOKEN).transfer(ADMIN, amount);
+        if (amount > 0) OFFER_TOKEN.safeTransfer(ADMIN, amount);
     }
 
     // callback
@@ -199,7 +201,7 @@ contract ERC20TokenOfferCycle {
             return this.onERC1155Received.selector;
         }
 
-        if (SOFT_LOCK_ENABLED && totalClaimed[from] > IERC20(from).balanceOf(OFFER_TOKEN)) revert SoftLock();
+        if (SOFT_LOCK_ENABLED && totalClaimed[from] > OFFER_TOKEN.balanceOf(from)) revert SoftLock();
         data = abi.encode(from);
 
         // transfer to offer
@@ -225,7 +227,7 @@ contract ERC20TokenOfferCycle {
             return this.onERC1155BatchReceived.selector;
         }
 
-        if (SOFT_LOCK_ENABLED && totalClaimed[from] > IERC20(from).balanceOf(OFFER_TOKEN)) revert SoftLock();
+        if (SOFT_LOCK_ENABLED && totalClaimed[from] > OFFER_TOKEN.balanceOf(from)) revert SoftLock();
         data = abi.encode(from);
 
         // transfer to offer

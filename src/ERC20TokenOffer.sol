@@ -5,8 +5,10 @@ import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {IHub} from "src/interfaces/IHub.sol";
 import {IAccountWeightProvider} from "src/interfaces/IAccountWeightProvider.sol";
 import {IERC20TokenOfferFactory} from "src/interfaces/IERC20TokenOfferFactory.sol";
+import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
 contract ERC20TokenOffer {
+    using SafeTransferLib for address;
     /*//////////////////////////////////////////////////////////////
                              Errors
     //////////////////////////////////////////////////////////////*/
@@ -171,7 +173,7 @@ contract ERC20TokenOffer {
         ACCOUNT_WEIGHT_PROVIDER.finalizeWeights();
 
         // receieve token
-        IERC20(TOKEN).transferFrom(OWNER, address(this), amount);
+        TOKEN.safeTransferFrom(OWNER, address(this), amount);
 
         isOfferTokensDeposited = true;
 
@@ -180,8 +182,8 @@ contract ERC20TokenOffer {
 
     function withdrawUnclaimedOfferTokens() external onlyOwner returns (uint256 balance) {
         if (OFFER_END > block.timestamp) revert OfferActive();
-        balance = IERC20(TOKEN).balanceOf(address(this));
-        if (balance > 0) IERC20(TOKEN).transfer(OWNER, balance);
+        balance = TOKEN.balanceOf(address(this));
+        if (balance > 0) TOKEN.safeTransfer(OWNER, balance);
     }
 
     function _claimOffer(address account, uint256 value) internal returns (uint256 amount) {
@@ -197,7 +199,7 @@ contract ERC20TokenOffer {
 
         // transfer token
         amount = value * (10 ** TOKEN_DECIMALS) / TOKEN_PRICE_IN_CRC;
-        IERC20(TOKEN).transfer(account, amount);
+        TOKEN.safeTransfer(account, amount);
 
         emit OfferClaimed(account, value, amount);
     }
