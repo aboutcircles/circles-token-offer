@@ -77,7 +77,7 @@ contract AccountWeightProviderUnbounded is IAccountWeightProvider {
     }
 
     /*//////////////////////////////////////////////////////////////
-                        Admin/Offer Functions
+                        Admin Function
     //////////////////////////////////////////////////////////////*/
 
     /// @notice Sets or updates account weights for a given offer.
@@ -118,6 +118,10 @@ contract AccountWeightProviderUnbounded is IAccountWeightProvider {
         offerWeights.totalAccounts += accountsCount;
     }
 
+    /*//////////////////////////////////////////////////////////////
+                             Lifecycle
+    //////////////////////////////////////////////////////////////*/
+
     /// @notice Finalizes weights for the calling offer, preventing further modifications.
     /// @dev Emits {WeightsFinalized} if the offer has at least one account with nonzero weight.
     function finalizeWeights() external {
@@ -127,7 +131,7 @@ contract AccountWeightProviderUnbounded is IAccountWeightProvider {
     }
 
     /*//////////////////////////////////////////////////////////////
-                         View Functions
+                    View Functions (Specific to Offer)
     //////////////////////////////////////////////////////////////*/
 
     /// @inheritdoc IAccountWeightProvider
@@ -149,6 +153,10 @@ contract AccountWeightProviderUnbounded is IAccountWeightProvider {
     function getTotalAccounts() external view returns (uint256) {
         return offers[msg.sender].totalAccounts;
     }
+
+    /*//////////////////////////////////////////////////////////////
+                        View Functions
+    //////////////////////////////////////////////////////////////*/
 
     /// @notice Returns the weight of a given account for a specified offer.
     /// @param offer The offer to query.
