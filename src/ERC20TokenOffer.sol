@@ -6,11 +6,6 @@ import {IHub} from "src/interfaces/IHub.sol";
 import {IAccountWeightProvider} from "src/interfaces/IAccountWeightProvider.sol";
 import {IERC20TokenOfferFactory} from "src/interfaces/IERC20TokenOfferFactory.sol";
 
-interface IERC20TokenOfferCycle {
-    function accountClaim(address account, uint256 amount) external;
-    function isAllowedToClaim(address account) external view returns (bool);
-}
-
 // TODO: add statistics: how many accounts in offer, how many accounts used offer
 
 contract ERC20TokenOffer {
@@ -247,7 +242,6 @@ contract ERC20TokenOffer {
         if (CREATED_BY_CYCLE && from != OWNER) revert OnlyFromCycle();
         if (CREATED_BY_CYCLE) from = abi.decode(data, (address));
         uint256 amount = _claimOffer(from, totalValue);
-        if (CREATED_BY_CYCLE) IERC20TokenOfferCycle(OWNER).accountClaim(from, amount);
         data = CREATED_BY_CYCLE ? abi.encode(from, amount) : new bytes(0);
 
         // transfer to owner
