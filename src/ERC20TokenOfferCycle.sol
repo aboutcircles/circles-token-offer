@@ -142,6 +142,14 @@ contract ERC20TokenOfferCycle {
         return currentOffer().isAccountEligible(account);
     }
 
+    function getTotalEligibleAccounts() external view returns (uint256) {
+        return currentOffer().getTotalEligibleAccounts();
+    }
+
+    function getClaimantCount() external view returns (uint256) {
+        return currentOffer().claimantCount();
+    }
+
     function getAccountOfferLimit(address account) public view returns (uint256) {
         return currentOffer().getAccountOfferLimit(account);
     }

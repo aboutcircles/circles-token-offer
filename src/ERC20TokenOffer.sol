@@ -6,8 +6,6 @@ import {IHub} from "src/interfaces/IHub.sol";
 import {IAccountWeightProvider} from "src/interfaces/IAccountWeightProvider.sol";
 import {IERC20TokenOfferFactory} from "src/interfaces/IERC20TokenOfferFactory.sol";
 
-// TODO: add statistics: how many accounts in offer, how many accounts used offer
-
 contract ERC20TokenOffer {
     /*//////////////////////////////////////////////////////////////
                              Errors
@@ -68,6 +66,7 @@ contract ERC20TokenOffer {
     bool public isOfferTokensDeposited;
 
     mapping(address account => uint256 spentAmount) public offerUsage;
+    uint256 public claimantCount;
 
     /*//////////////////////////////////////////////////////////////
                             Modifiers
@@ -142,6 +141,10 @@ contract ERC20TokenOffer {
         return ACCOUNT_WEIGHT_PROVIDER.getAccountWeight(account) > 0;
     }
 
+    function getTotalEligibleAccounts() external view returns (uint256) {
+        return ACCOUNT_WEIGHT_PROVIDER.getTotalAccounts();
+    }
+
     function getAccountOfferLimit(address account) public view returns (uint256) {
         return BASE_OFFER_LIMIT_IN_CRC * ACCOUNT_WEIGHT_PROVIDER.getAccountWeight(account) / WEIGHT_SCALE;
     }
@@ -188,6 +191,7 @@ contract ERC20TokenOffer {
         if (accountLimit == 0) revert IneligibleAccount(account);
 
         uint256 availableLimit = accountLimit - offerUsage[account];
+        if (availableLimit == accountLimit) ++claimantCount;
         if (availableLimit < value) revert ExceedsOfferLimit(availableLimit, value);
 
         offerUsage[account] += value;

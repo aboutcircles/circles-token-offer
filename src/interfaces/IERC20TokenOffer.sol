@@ -27,10 +27,12 @@ interface IERC20TokenOffer {
     function TOKEN() external view returns (address);
     function TOKEN_PRICE_IN_CRC() external view returns (uint256);
     function WEIGHT_SCALE() external view returns (uint256);
+    function claimantCount() external view returns (uint256);
     function depositOfferTokens() external;
     function getAccountOfferLimit(address account) external view returns (uint256);
     function getAvailableAccountOfferLimit(address account) external view returns (uint256);
     function getRequiredOfferTokenAmount() external view returns (uint256);
+    function getTotalEligibleAccounts() external view returns (uint256);
     function isAccountEligible(address account) external view returns (bool);
     function isOfferAvailable() external view returns (bool);
     function isOfferTokensDeposited() external view returns (bool);
