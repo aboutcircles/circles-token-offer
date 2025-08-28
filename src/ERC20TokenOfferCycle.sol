@@ -3,7 +3,7 @@ pragma solidity ^0.8.28;
 
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {IERC20TokenOfferFactory} from "src/interfaces/IERC20TokenOfferFactory.sol";
-import {IAccountScoreProvider} from "src/interfaces/IAccountScoreProvider.sol";
+import {IAccountWeightProvider} from "src/interfaces/IAccountWeightProvider.sol";
 import {IERC20TokenOffer} from "src/interfaces/IERC20TokenOffer.sol";
 import {IHub} from "src/interfaces/IHub.sol";
 import {LibString} from "solady/utils/LibString.sol";
@@ -24,7 +24,7 @@ contract ERC20TokenOfferCycle {
 
     IERC20TokenOfferFactory public immutable OFFER_FACTORY;
     address public immutable ADMIN;
-    IAccountScoreProvider public immutable ACCOUNT_SCORE_PROVIDER;
+    IAccountWeightProvider public immutable ACCOUNT_WEIGHT_PROVIDER;
     /// @notice Circles v2 Hub.
     IHub public constant HUB = IHub(address(0xc12C1E50ABB450d6205Ea2C3Fa861b3B834d13e8));
 
@@ -51,8 +51,8 @@ contract ERC20TokenOfferCycle {
     }
 
     constructor(
+        address accountWeightProvider,
         address admin,
-        address accountScoreProvider,
         address offerToken,
         uint256 offersStart,
         uint256 offerDuration,
@@ -60,8 +60,8 @@ contract ERC20TokenOfferCycle {
         string memory orgName
     ) {
         OFFER_FACTORY = IERC20TokenOfferFactory(msg.sender);
+        ACCOUNT_WEIGHT_PROVIDER = IAccountWeightProvider(accountWeightProvider);
         ADMIN = admin;
-        ACCOUNT_SCORE_PROVIDER = IAccountScoreProvider(accountScoreProvider);
         OFFER_TOKEN = offerToken;
         OFFERS_START = offersStart;
         OFFER_DURATION = offerDuration;
@@ -91,8 +91,7 @@ contract ERC20TokenOfferCycle {
         string memory offerName = string.concat(offerOrgName, "-", LibString.toString(currentId + 1));
 
         nextOffer = OFFER_FACTORY.createERC20TokenOffer(
-            address(0),
-            address(ACCOUNT_SCORE_PROVIDER),
+            address(ACCOUNT_WEIGHT_PROVIDER),
             address(this),
             OFFER_TOKEN,
             tokenPriceInCRC,
@@ -205,9 +204,9 @@ contract ERC20TokenOfferCycle {
         return this.onERC1155BatchReceived.selector;
     }
 
-    // score provider function
-    function setNextOfferAccountScores(address[] memory accounts, uint256[] memory scores) external onlyAdmin {
+    // weight provider function
+    function setNextOfferAccountWeights(address[] memory accounts, uint256[] memory weights) external onlyAdmin {
         address nextOffer = address(offers[currentOfferId() + 1]);
-        ACCOUNT_SCORE_PROVIDER.setAccountScores(nextOffer, accounts, scores);
+        ACCOUNT_WEIGHT_PROVIDER.setAccountWeights(nextOffer, accounts, weights);
     }
 }

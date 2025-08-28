@@ -2,11 +2,9 @@
 pragma solidity ^0.8.28;
 
 interface IERC20TokenOfferFactory {
-    error AccountScoreProviderShouldHaveAdmin();
-
+    function createAccountWeightProvider(address admin, bool unbounded) external returns (address provider);
     function createERC20TokenOffer(
-        address accountScoreProviderAdmin,
-        address accountScoreProvider,
+        address accountWeightProvider,
         address offerOwner,
         address offerToken,
         uint256 tokenPriceInCRC,
@@ -16,8 +14,10 @@ interface IERC20TokenOfferFactory {
         string memory orgName,
         address[] memory acceptedCRC
     ) external returns (address tokenOffer);
+
     function createERC20TokenOfferCycle(
-        address admin,
+        address accountWeightProvider,
+        address cycleOwner,
         address offerToken,
         uint256 offersStart,
         uint256 offerDuration,

@@ -3,7 +3,7 @@ pragma solidity ^0.8.28;
 
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {IHub} from "src/interfaces/IHub.sol";
-import {IAccountScoreProvider} from "src/interfaces/IAccountScoreProvider.sol";
+import {IAccountWeightProvider} from "src/interfaces/IAccountWeightProvider.sol";
 
 // TODO: add statistics: how many accounts in offer, how many accounts used offer
 
@@ -13,8 +13,6 @@ contract ERC20TokenOffer {
     //////////////////////////////////////////////////////////////*/
 
     error OfferDurationIsZero();
-
-    error DenominatorIsZero();
 
     error OnlyOwner();
 
@@ -46,24 +44,18 @@ contract ERC20TokenOffer {
                            Constants
     //////////////////////////////////////////////////////////////*/
     address public immutable OWNER;
-    address public immutable TOKEN; // = address(0x9C58BAcC331c9aa871AFD802DB6379a98e80CEdb);
+    address public immutable TOKEN;
     uint256 internal immutable TOKEN_DECIMALS;
-    IAccountScoreProvider public immutable ACCOUNT_SCORE_PROVIDER; // ISSUE: problem is that i can't freeze updating the storage of this contract, so implementation should be known
+    IAccountWeightProvider public immutable ACCOUNT_WEIGHT_PROVIDER;
     /// @notice Circles v2 Hub.
     IHub public constant HUB = IHub(address(0xc12C1E50ABB450d6205Ea2C3Fa861b3B834d13e8));
 
     uint256 public immutable TOKEN_PRICE_IN_CRC;
-    uint256 public immutable BASE_OFFER_LIMIT_IN_CRC; // = 500 ether;
+    uint256 public immutable BASE_OFFER_LIMIT_IN_CRC;
     uint256 public immutable OFFER_START;
     uint256 public immutable OFFER_END;
 
-    uint256 public immutable SCORE_DENOMINATOR;
-
-    // for daily extension
-    // uint256 public dailyLimit = 100 ether;
-
-    // for tiers extension
-    // uint256 internal constant ONE_IN_BASIS_POINTS = 10_000;
+    uint256 public immutable WEIGHT_SCALE;
 
     /*//////////////////////////////////////////////////////////////
                             Storage
@@ -106,9 +98,9 @@ contract ERC20TokenOffer {
     }
 
     constructor(
+        address accountWeightProvider,
         address offerOwner,
         address offerToken,
-        address accountScoreProvider,
         uint256 tokenPriceInCRC,
         uint256 offerLimitInCRC,
         uint256 offerStart,
@@ -116,12 +108,11 @@ contract ERC20TokenOffer {
         string memory orgName,
         address[] memory acceptedCRC
     ) {
+        ACCOUNT_WEIGHT_PROVIDER = IAccountWeightProvider(accountWeightProvider);
+        WEIGHT_SCALE = ACCOUNT_WEIGHT_PROVIDER.getWeightScale();
         OWNER = offerOwner;
         TOKEN = offerToken;
         TOKEN_DECIMALS = IERC20(TOKEN).decimals();
-        ACCOUNT_SCORE_PROVIDER = IAccountScoreProvider(accountScoreProvider);
-        SCORE_DENOMINATOR = ACCOUNT_SCORE_PROVIDER.getScoreDenominator();
-        if (SCORE_DENOMINATOR == 0) revert DenominatorIsZero();
         TOKEN_PRICE_IN_CRC = tokenPriceInCRC;
         BASE_OFFER_LIMIT_IN_CRC = offerLimitInCRC;
         if (offerDuration == 0) revert OfferDurationIsZero();
@@ -143,11 +134,11 @@ contract ERC20TokenOffer {
     }
 
     function isAccountEligible(address account) external view returns (bool) {
-        return ACCOUNT_SCORE_PROVIDER.getAccountScore(account) > 0;
+        return ACCOUNT_WEIGHT_PROVIDER.getAccountWeight(account) > 0;
     }
 
     function getAccountOfferLimit(address account) public view returns (uint256) {
-        return BASE_OFFER_LIMIT_IN_CRC * ACCOUNT_SCORE_PROVIDER.getAccountScore(account) / SCORE_DENOMINATOR;
+        return BASE_OFFER_LIMIT_IN_CRC * ACCOUNT_WEIGHT_PROVIDER.getAccountWeight(account) / WEIGHT_SCALE;
     }
 
     function getAvailableAccountOfferLimit(address account) external view returns (uint256) {
@@ -155,7 +146,8 @@ contract ERC20TokenOffer {
     }
 
     function getRequiredOfferTokenAmount() public view returns (uint256) {
-        return BASE_OFFER_LIMIT_IN_CRC * ACCOUNT_SCORE_PROVIDER.getTotalAccountScore() / SCORE_DENOMINATOR;
+        return
+            (BASE_OFFER_LIMIT_IN_CRC * ACCOUNT_WEIGHT_PROVIDER.getTotalWeight()) / (WEIGHT_SCALE * TOKEN_PRICE_IN_CRC);
     }
 
     /// requires token pre-approval
@@ -169,7 +161,7 @@ contract ERC20TokenOffer {
         uint256 amount = getRequiredOfferTokenAmount();
 
         // freeze score_provider
-        ACCOUNT_SCORE_PROVIDER.finalizeScores();
+        ACCOUNT_WEIGHT_PROVIDER.finalizeWeights();
 
         // receieve token
         IERC20(TOKEN).transferFrom(OWNER, address(this), amount);
