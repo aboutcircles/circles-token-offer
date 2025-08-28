@@ -24,4 +24,6 @@ interface IERC20TokenOfferFactory {
         string memory offerName,
         string memory cycleName
     ) external returns (address offerCycle);
+
+    function isCreatedByCycle() external view returns (bool);
 }

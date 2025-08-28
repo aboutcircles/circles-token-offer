@@ -11,6 +11,9 @@ import {LibString} from "solady/utils/LibString.sol";
 contract ERC20TokenOfferCycle {
     error OnlyAdmin();
     error OnlyHub();
+    error OnlyCurrentOffer();
+    error NextOfferTokensAreAlreadyDeposited();
+    error SoftLock();
     /*//////////////////////////////////////////////////////////////
                              Events
     //////////////////////////////////////////////////////////////*/
@@ -31,10 +34,12 @@ contract ERC20TokenOfferCycle {
     address public immutable OFFER_TOKEN;
     uint256 public immutable OFFERS_START;
     uint256 public immutable OFFER_DURATION;
+    bool public immutable SOFT_LOCK_ENABLED;
 
     string public offerOrgName;
     mapping(uint256 => IERC20TokenOffer) public offers;
     mapping(uint256 => address[]) public acceptedCRC;
+    mapping(address => uint256) public totalClaimed;
 
     /*//////////////////////////////////////////////////////////////
                             Modifiers
@@ -56,6 +61,7 @@ contract ERC20TokenOfferCycle {
         address offerToken,
         uint256 offersStart,
         uint256 offerDuration,
+        bool enableSoftLock,
         string memory offerName,
         string memory orgName
     ) {
@@ -65,6 +71,7 @@ contract ERC20TokenOfferCycle {
         OFFER_TOKEN = offerToken;
         OFFERS_START = offersStart;
         OFFER_DURATION = offerDuration;
+        SOFT_LOCK_ENABLED = enableSoftLock;
         offerOrgName = offerName;
 
         // register an org
@@ -86,6 +93,11 @@ contract ERC20TokenOfferCycle {
         returns (address nextOffer)
     {
         uint256 currentId = currentOfferId();
+        nextOffer = address(offers[currentId + 1]);
+        // check case: next offer exists and tokens are deposited
+        if (nextOffer != address(0) && IERC20TokenOffer(nextOffer).isOfferTokensDeposited()) {
+            revert NextOfferTokensAreAlreadyDeposited();
+        }
         uint256 offerStart = OFFERS_START + (OFFER_DURATION * currentId);
 
         string memory offerName = string.concat(offerOrgName, "-", LibString.toString(currentId + 1));
@@ -164,20 +176,26 @@ contract ERC20TokenOfferCycle {
 
     // callback
 
-    function onERC1155Received(address, /*operator*/ address from, uint256 id, uint256 value, bytes calldata /*data*/ )
+    function onERC1155Received(address, /*operator*/ address from, uint256 id, uint256 value, bytes memory data)
         external
         onlyHub
         returns (bytes4)
     {
         address offerAddress = address(currentOffer());
         if (from == offerAddress) {
+            // track the claim
+            (address account, uint256 amount) = abi.decode(data, (address, uint256));
+            totalClaimed[account] += amount;
             // transfer to admin
             HUB.safeTransferFrom(address(this), ADMIN, id, value, "");
             return this.onERC1155Received.selector;
         }
 
+        if (SOFT_LOCK_ENABLED && totalClaimed[from] > IERC20(from).balanceOf(OFFER_TOKEN)) revert SoftLock();
+        data = abi.encode(from);
+
         // transfer to offer
-        HUB.safeTransferFrom(address(this), offerAddress, id, value, abi.encode(from));
+        HUB.safeTransferFrom(address(this), offerAddress, id, value, data);
 
         return this.onERC1155Received.selector;
     }
@@ -185,21 +203,25 @@ contract ERC20TokenOfferCycle {
     function onERC1155BatchReceived(
         address, /*operator*/
         address from,
-        uint256[] calldata ids,
-        uint256[] calldata values,
-        bytes calldata /*data*/
+        uint256[] memory ids,
+        uint256[] memory values,
+        bytes memory data
     ) external onlyHub returns (bytes4) {
         address offerAddress = address(currentOffer());
         if (from == offerAddress) {
+            // track the claim
+            (address account, uint256 amount) = abi.decode(data, (address, uint256));
+            totalClaimed[account] += amount;
             // transfer to admin
             HUB.safeBatchTransferFrom(address(this), ADMIN, ids, values, "");
             return this.onERC1155BatchReceived.selector;
         }
 
-        bytes memory forwardedFrom = abi.encode(from);
+        if (SOFT_LOCK_ENABLED && totalClaimed[from] > IERC20(from).balanceOf(OFFER_TOKEN)) revert SoftLock();
+        data = abi.encode(from);
 
         // transfer to offer
-        HUB.safeBatchTransferFrom(address(this), offerAddress, ids, values, forwardedFrom);
+        HUB.safeBatchTransferFrom(address(this), offerAddress, ids, values, data);
 
         return this.onERC1155BatchReceived.selector;
     }

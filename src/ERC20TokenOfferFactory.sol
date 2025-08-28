@@ -11,6 +11,8 @@ contract ERC20TokenOfferFactory {
     error InvalidAccountWeightProvider();
 
     mapping(address => bool) internal createdAccountWeightProvider;
+    mapping(address => bool) internal createdCycle;
+    bool public transient isCreatedByCycle;
 
     function createAccountWeightProvider(address admin, bool unbounded) public returns (address provider) {
         if (admin == address(0)) revert AccountWeightProviderShouldHaveAdmin();
@@ -33,6 +35,7 @@ contract ERC20TokenOfferFactory {
     ) external returns (address tokenOffer) {
         if (accountWeightProvider == address(0)) accountWeightProvider = createAccountWeightProvider(offerOwner, true);
         else if (!createdAccountWeightProvider[accountWeightProvider]) revert InvalidAccountWeightProvider();
+        if (createdCycle[msg.sender]) isCreatedByCycle = true;
 
         tokenOffer = address(
             new ERC20TokenOffer(
@@ -47,6 +50,8 @@ contract ERC20TokenOfferFactory {
                 acceptedCRC
             )
         );
+
+        isCreatedByCycle = false;
     }
 
     function createERC20TokenOfferCycle(
@@ -55,6 +60,7 @@ contract ERC20TokenOfferFactory {
         address offerToken,
         uint256 offersStart,
         uint256 offerDuration,
+        bool enableSoftLock,
         string memory offerName,
         string memory cycleName
     ) external returns (address offerCycle) {
@@ -62,8 +68,16 @@ contract ERC20TokenOfferFactory {
         else if (!createdAccountWeightProvider[accountWeightProvider]) revert InvalidAccountWeightProvider();
         offerCycle = address(
             new ERC20TokenOfferCycle(
-                accountWeightProvider, cycleOwner, offerToken, offersStart, offerDuration, offerName, cycleName
+                accountWeightProvider,
+                cycleOwner,
+                offerToken,
+                offersStart,
+                offerDuration,
+                enableSoftLock,
+                offerName,
+                cycleName
             )
         );
+        createdCycle[offerCycle] = true;
     }
 }

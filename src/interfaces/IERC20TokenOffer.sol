@@ -10,6 +10,7 @@ interface IERC20TokenOffer {
     error OfferDurationIsZero();
     error OfferNotActive();
     error OfferTokensNotDeposited();
+    error OnlyFromCycle();
     error OnlyHub();
     error OnlyOwner();
 
@@ -18,6 +19,7 @@ interface IERC20TokenOffer {
 
     function ACCOUNT_WEIGHT_PROVIDER() external view returns (address);
     function BASE_OFFER_LIMIT_IN_CRC() external view returns (uint256);
+    function CREATED_BY_CYCLE() external view returns (bool);
     function HUB() external view returns (address);
     function OFFER_END() external view returns (uint256);
     function OFFER_START() external view returns (uint256);
@@ -31,6 +33,7 @@ interface IERC20TokenOffer {
     function getRequiredOfferTokenAmount() external view returns (uint256);
     function isAccountEligible(address account) external view returns (bool);
     function isOfferAvailable() external view returns (bool);
+    function isOfferTokensDeposited() external view returns (bool);
     function offerUsage(address account) external view returns (uint256 spentAmount);
     function onERC1155BatchReceived(
         address,

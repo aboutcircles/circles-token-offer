@@ -4,6 +4,12 @@ pragma solidity ^0.8.28;
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {IHub} from "src/interfaces/IHub.sol";
 import {IAccountWeightProvider} from "src/interfaces/IAccountWeightProvider.sol";
+import {IERC20TokenOfferFactory} from "src/interfaces/IERC20TokenOfferFactory.sol";
+
+interface IERC20TokenOfferCycle {
+    function accountClaim(address account, uint256 amount) external;
+    function isAllowedToClaim(address account) external view returns (bool);
+}
 
 // TODO: add statistics: how many accounts in offer, how many accounts used offer
 
@@ -32,6 +38,8 @@ contract ERC20TokenOffer {
 
     error OfferDepositClosed();
 
+    error OnlyFromCycle();
+
     /*//////////////////////////////////////////////////////////////
                              Events
     //////////////////////////////////////////////////////////////*/
@@ -43,6 +51,7 @@ contract ERC20TokenOffer {
     /*//////////////////////////////////////////////////////////////
                            Constants
     //////////////////////////////////////////////////////////////*/
+    bool public immutable CREATED_BY_CYCLE;
     address public immutable OWNER;
     address public immutable TOKEN;
     uint256 internal immutable TOKEN_DECIMALS;
@@ -61,7 +70,7 @@ contract ERC20TokenOffer {
                             Storage
     //////////////////////////////////////////////////////////////*/
 
-    bool isOfferTokensDeposited;
+    bool public isOfferTokensDeposited;
 
     mapping(address account => uint256 spentAmount) public offerUsage;
 
@@ -108,6 +117,7 @@ contract ERC20TokenOffer {
         string memory orgName,
         address[] memory acceptedCRC
     ) {
+        CREATED_BY_CYCLE = IERC20TokenOfferFactory(msg.sender).isCreatedByCycle();
         ACCOUNT_WEIGHT_PROVIDER = IAccountWeightProvider(accountWeightProvider);
         WEIGHT_SCALE = ACCOUNT_WEIGHT_PROVIDER.getWeightScale();
         OWNER = offerOwner;
@@ -177,7 +187,7 @@ contract ERC20TokenOffer {
         if (balance > 0) IERC20(TOKEN).transfer(OWNER, balance);
     }
 
-    function _claimOffer(address account, uint256 value) internal {
+    function _claimOffer(address account, uint256 value) internal returns (uint256 amount) {
         uint256 accountLimit = getAccountOfferLimit(account);
 
         if (accountLimit == 0) revert IneligibleAccount(account);
@@ -188,7 +198,7 @@ contract ERC20TokenOffer {
         offerUsage[account] += value;
 
         // transfer token
-        uint256 amount = value * (10 ** TOKEN_DECIMALS) / TOKEN_PRICE_IN_CRC;
+        amount = value * (10 ** TOKEN_DECIMALS) / TOKEN_PRICE_IN_CRC;
         IERC20(TOKEN).transfer(account, amount);
 
         emit OfferClaimed(account, value, amount);
@@ -196,7 +206,7 @@ contract ERC20TokenOffer {
 
     // callback
 
-    function onERC1155Received(address, /*operator*/ address from, uint256 id, uint256 value, bytes calldata data)
+    function onERC1155Received(address, /*operator*/ address from, uint256 id, uint256 value, bytes memory data)
         external
         onlyHub
         onlyWhenOfferTokensDeposited
@@ -204,12 +214,17 @@ contract ERC20TokenOffer {
         returns (bytes4)
     {
         if (!HUB.isTrusted(address(this), address(uint160(id)))) revert InvalidTokenId(id);
-        if (from == OWNER) from = abi.decode(data, (address));
 
-        _claimOffer(from, value);
+        // question: should i disallow direct transfer in case of cycle - it make sense
+        // consequences: on cycle lvl - i should keep track of next offer and in case of funded - don't allow next offer recreation
+        if (CREATED_BY_CYCLE && from != OWNER) revert OnlyFromCycle();
+        if (CREATED_BY_CYCLE) from = abi.decode(data, (address));
+
+        uint256 amount = _claimOffer(from, value);
+        data = CREATED_BY_CYCLE ? abi.encode(from, amount) : new bytes(0);
 
         // transfer to owner
-        HUB.safeTransferFrom(address(this), OWNER, id, value, "");
+        HUB.safeTransferFrom(address(this), OWNER, id, value, data);
 
         return this.onERC1155Received.selector;
     }
@@ -217,9 +232,9 @@ contract ERC20TokenOffer {
     function onERC1155BatchReceived(
         address, /*operator*/
         address from,
-        uint256[] calldata ids,
-        uint256[] calldata values,
-        bytes calldata data
+        uint256[] memory ids,
+        uint256[] memory values,
+        bytes memory data
     ) external onlyHub onlyWhenOfferTokensDeposited onlyWhileOfferActive returns (bytes4) {
         uint256 totalValue;
         for (uint256 i; i < ids.length; i++) {
@@ -229,12 +244,14 @@ contract ERC20TokenOffer {
                 ++i;
             }
         }
-
-        if (from == OWNER) from = abi.decode(data, (address));
-        _claimOffer(from, totalValue);
+        if (CREATED_BY_CYCLE && from != OWNER) revert OnlyFromCycle();
+        if (CREATED_BY_CYCLE) from = abi.decode(data, (address));
+        uint256 amount = _claimOffer(from, totalValue);
+        if (CREATED_BY_CYCLE) IERC20TokenOfferCycle(OWNER).accountClaim(from, amount);
+        data = CREATED_BY_CYCLE ? abi.encode(from, amount) : new bytes(0);
 
         // transfer to owner
-        HUB.safeBatchTransferFrom(address(this), OWNER, ids, values, "");
+        HUB.safeBatchTransferFrom(address(this), OWNER, ids, values, data);
 
         return this.onERC1155BatchReceived.selector;
     }
