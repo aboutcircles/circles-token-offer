@@ -22,7 +22,7 @@ contract AccountWeightProviderUnbounded is IAccountWeightProvider {
 
     /// @notice Thrown when a function is called by a non-admin address.
     error OnlyAdmin();
-    error LengthMismatch();
+    error ArrayLengthMismatch();
     error WeightsAlreadyFinalized();
 
     /*//////////////////////////////////////////////////////////////
@@ -51,7 +51,7 @@ contract AccountWeightProviderUnbounded is IAccountWeightProvider {
     function setAccountWeights(address offer, address[] memory accounts, uint256[] memory weights) external {
         OfferWeights storage offerWeights = offers[offer];
         if (msg.sender != ADMIN) revert OnlyAdmin();
-        if (accounts.length != weights.length) revert LengthMismatch();
+        if (accounts.length != weights.length) revert ArrayLengthMismatch();
         if (offerWeights.finalized) revert WeightsAlreadyFinalized();
 
         uint256 weightsCount;
@@ -91,15 +91,15 @@ contract AccountWeightProviderUnbounded is IAccountWeightProvider {
         return getAccountWeight(msg.sender, account);
     }
 
-    function getAccountWeight(address offer, address account) public view returns (uint256) {
-        return offers[offer].weightOf[account];
-    }
-
     function getTotalWeight() external view returns (uint256) {
         return offers[msg.sender].totalWeight;
     }
 
     function getTotalAccounts() external view returns (uint256) {
         return offers[msg.sender].totalAccounts;
+    }
+
+    function getAccountWeight(address offer, address account) public view returns (uint256) {
+        return offers[offer].weightOf[account];
     }
 }

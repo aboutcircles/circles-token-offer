@@ -56,7 +56,6 @@ contract ERC20TokenOffer {
     uint256 public immutable BASE_OFFER_LIMIT_IN_CRC;
     uint256 public immutable OFFER_START;
     uint256 public immutable OFFER_END;
-
     uint256 public immutable WEIGHT_SCALE;
 
     /*//////////////////////////////////////////////////////////////
@@ -168,7 +167,7 @@ contract ERC20TokenOffer {
 
         uint256 amount = getRequiredOfferTokenAmount();
 
-        // freeze score_provider
+        // freeze weight provider
         ACCOUNT_WEIGHT_PROVIDER.finalizeWeights();
 
         // receieve token
@@ -213,9 +212,6 @@ contract ERC20TokenOffer {
         returns (bytes4)
     {
         if (!HUB.isTrusted(address(this), address(uint160(id)))) revert InvalidTokenId(id);
-
-        // question: should i disallow direct transfer in case of cycle - it make sense
-        // consequences: on cycle lvl - i should keep track of next offer and in case of funded - don't allow next offer recreation
         if (CREATED_BY_CYCLE && from != OWNER) revert OnlyFromCycle();
         if (CREATED_BY_CYCLE) from = abi.decode(data, (address));
 
