@@ -156,10 +156,9 @@ contract ERC20TokenOfferCycle {
 
     /// @notice Initializes a cycle, creates the shared weight provider via the factory, and registers a Hub org.
     /// @dev
-    /// - The shared provider is created with `createAccountWeightProvider(address(this), accountWeightProviderUnbounded)`.
+    /// - The shared provider is created with `createAccountWeightProvider(address(this))`.
     /// - Registers an organization in Hub under `orgName` (human label).
     /// - Emits {CycleConfiguration}.
-    /// @param accountWeightProviderUnbounded If true, create an unbounded (graded) provider; otherwise binary.
     /// @param admin Cycle admin address.
     /// @param offerToken ERC-20 token to be sold by offers in this cycle.
     /// @param offersStart First offer start timestamp (inclusive).
@@ -168,7 +167,6 @@ contract ERC20TokenOfferCycle {
     /// @param offerName Prefix used to construct per-offer display names.
     /// @param orgName Human-readable org name to register in the Hub.
     constructor(
-        bool accountWeightProviderUnbounded,
         address admin,
         address offerToken,
         uint256 offersStart,
@@ -178,9 +176,7 @@ contract ERC20TokenOfferCycle {
         string memory orgName
     ) {
         OFFER_FACTORY = IERC20TokenOfferFactory(msg.sender);
-        ACCOUNT_WEIGHT_PROVIDER = IAccountWeightProvider(
-            OFFER_FACTORY.createAccountWeightProvider(address(this), accountWeightProviderUnbounded)
-        );
+        ACCOUNT_WEIGHT_PROVIDER = IAccountWeightProvider(OFFER_FACTORY.createAccountWeightProvider(address(this)));
         ADMIN = admin;
         OFFER_TOKEN = offerToken;
         OFFERS_START = offersStart;
@@ -263,7 +259,7 @@ contract ERC20TokenOfferCycle {
     /// @notice Batches account weights for the *next* offer id (current + 1) using the shared provider.
     /// @dev This writes into the provider’s scope keyed by the next offer address.
     /// @param accounts Accounts to configure.
-    /// @param weights Weights to set (binary or graded depending on provider type).
+    /// @param weights Non-negative weights to set (unbounded/graded). Zero removes eligibility.
     function setNextOfferAccountWeights(address[] memory accounts, uint256[] memory weights) external onlyAdmin {
         address nextOffer = address(offers[currentOfferId() + 1]);
         ACCOUNT_WEIGHT_PROVIDER.setAccountWeights(nextOffer, accounts, weights);

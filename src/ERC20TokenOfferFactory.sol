@@ -2,7 +2,6 @@
 pragma solidity ^0.8.28;
 
 import {AccountWeightProviderUnbounded} from "src/AccountWeightProviderUnbounded.sol";
-import {AccountWeightProviderBinary} from "src/AccountWeightProviderBinary.sol";
 import {ERC20TokenOffer} from "src/ERC20TokenOffer.sol";
 import {ERC20TokenOfferCycle} from "src/ERC20TokenOfferCycle.sol";
 
@@ -44,8 +43,7 @@ contract ERC20TokenOfferFactory {
     /// @notice Emitted when a new account weight provider is created by the factory.
     /// @param provider The new provider address.
     /// @param admin The provider admin address.
-    /// @param unbounded True if the provider type is unbounded (graded), false for binary.
-    event AccountWeightProviderCreated(address indexed provider, address indexed admin, bool unbounded);
+    event AccountWeightProviderCreated(address indexed provider, address indexed admin);
 
     /// @notice Emitted when a standalone ERC20 token offer is created.
     /// @param tokenOffer The newly created offer address.
@@ -75,7 +73,6 @@ contract ERC20TokenOfferFactory {
     /// @param offerToken The ERC-20 token to be sold by offers within the cycle.
     /// @param offersStart Start timestamp (inclusive) for the first offer slot.
     /// @param offerDuration Duration (seconds) for each slot in the cycle.
-    /// @param accountWeightProviderUnbounded True for unbounded (graded) provider, false for binary provider.
     /// @param offerName Prefix used to compose per-offer names inside the cycle.
     /// @param cycleName Human-readable org name registered in the Hub for the cycle.
     event ERC20TokenOfferCycleCreated(
@@ -84,7 +81,6 @@ contract ERC20TokenOfferFactory {
         address indexed offerToken,
         uint256 offersStart,
         uint256 offerDuration,
-        bool accountWeightProviderUnbounded,
         string offerName,
         string cycleName
     );
@@ -107,18 +103,15 @@ contract ERC20TokenOfferFactory {
                            Provider Creation
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice Creates a new account weight provider (unbounded or binary) with a specified admin.
+    /// @notice Creates a new (unbounded/graded) account weight provider with a specified admin.
     /// @dev Marks the provider in `createdAccountWeightProvider` and emits {AccountWeightProviderCreated}.
     /// @param admin The admin address to set on the newly created provider.
-    /// @param unbounded True to deploy `AccountWeightProviderUnbounded`, false for `AccountWeightProviderBinary`.
     /// @return provider The address of the newly created provider.
-    function createAccountWeightProvider(address admin, bool unbounded) public returns (address provider) {
+    function createAccountWeightProvider(address admin) public returns (address provider) {
         if (admin == address(0)) revert ZeroAdmin();
-        provider = unbounded
-            ? address(new AccountWeightProviderUnbounded(admin))
-            : address(new AccountWeightProviderBinary(admin));
+        provider = address(new AccountWeightProviderUnbounded(admin));
         createdAccountWeightProvider[provider] = true;
-        emit AccountWeightProviderCreated(provider, admin, unbounded);
+        emit AccountWeightProviderCreated(provider, admin);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -159,7 +152,7 @@ contract ERC20TokenOfferFactory {
 
         // Use existing provider if valid; otherwise create a new unbounded provider with `offerOwner` as admin.
         if (accountWeightProvider == address(0)) {
-            accountWeightProvider = createAccountWeightProvider(offerOwner, true);
+            accountWeightProvider = createAccountWeightProvider(offerOwner);
         } else if (!createdAccountWeightProvider[accountWeightProvider]) {
             revert UnknownProvider();
         }
@@ -203,7 +196,6 @@ contract ERC20TokenOfferFactory {
 
     /// @notice Creates a new ERC20 token offer cycle with a shared weight provider.
     /// @dev The cycle’s constructor will create its shared provider and register in the Hub.
-    /// @param accountWeightProviderUnbounded True for unbounded (graded) provider, false for binary provider.
     /// @param cycleOwner Owner/admin of the cycle.
     /// @param offerToken ERC-20 token to be sold by offers in the cycle.
     /// @param offersStart First offer start timestamp (inclusive).
@@ -213,7 +205,6 @@ contract ERC20TokenOfferFactory {
     /// @param cycleName Human-readable org name to register in the Hub for the cycle.
     /// @return offerCycle Address of the newly created cycle.
     function createERC20TokenOfferCycle(
-        bool accountWeightProviderUnbounded,
         address cycleOwner,
         address offerToken,
         uint256 offersStart,
@@ -227,28 +218,14 @@ contract ERC20TokenOfferFactory {
 
         offerCycle = address(
             new ERC20TokenOfferCycle(
-                accountWeightProviderUnbounded,
-                cycleOwner,
-                offerToken,
-                offersStart,
-                offerDuration,
-                enableSoftLock,
-                offerName,
-                cycleName
+                cycleOwner, offerToken, offersStart, offerDuration, enableSoftLock, offerName, cycleName
             )
         );
 
         createdCycle[offerCycle] = true;
 
         emit ERC20TokenOfferCycleCreated(
-            offerCycle,
-            cycleOwner,
-            offerToken,
-            offersStart,
-            offerDuration,
-            accountWeightProviderUnbounded,
-            offerName,
-            cycleName
+            offerCycle, cycleOwner, offerToken, offersStart, offerDuration, offerName, cycleName
         );
     }
 }

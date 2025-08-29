@@ -2,10 +2,36 @@
 pragma solidity ^0.8.28;
 
 interface IERC20TokenOfferFactory {
-    error AccountWeightProviderShouldHaveAdmin();
-    error InvalidAccountWeightProvider();
+    error UnknownProvider();
+    error ZeroAdmin();
+    error ZeroDuration();
+    error ZeroLimit();
+    error ZeroOfferToken();
+    error ZeroPrice();
 
-    function createAccountWeightProvider(address admin, bool unbounded) external returns (address provider);
+    event AccountWeightProviderCreated(address indexed provider, address indexed admin);
+    event ERC20TokenOfferCreated(
+        address indexed tokenOffer,
+        address indexed offerOwner,
+        address indexed accountWeightProvider,
+        address offerToken,
+        uint256 tokenPriceInCRC,
+        uint256 offerLimitInCRC,
+        uint256 offerDuration,
+        string orgName,
+        address[] acceptedCRC
+    );
+    event ERC20TokenOfferCycleCreated(
+        address indexed offerCycle,
+        address indexed cycleOwner,
+        address indexed offerToken,
+        uint256 offersStart,
+        uint256 offerDuration,
+        string offerName,
+        string cycleName
+    );
+
+    function createAccountWeightProvider(address admin) external returns (address provider);
     function createERC20TokenOffer(
         address accountWeightProvider,
         address offerOwner,
@@ -18,7 +44,6 @@ interface IERC20TokenOfferFactory {
         address[] memory acceptedCRC
     ) external returns (address tokenOffer);
     function createERC20TokenOfferCycle(
-        bool accountWeightProviderUnbounded,
         address cycleOwner,
         address offerToken,
         uint256 offersStart,
@@ -27,5 +52,7 @@ interface IERC20TokenOfferFactory {
         string memory offerName,
         string memory cycleName
     ) external returns (address offerCycle);
+    function createdAccountWeightProvider(address) external view returns (bool);
+    function createdCycle(address) external view returns (bool);
     function isCreatedByCycle() external view returns (bool);
 }

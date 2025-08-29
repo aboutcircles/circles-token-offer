@@ -1,27 +1,17 @@
 # Account Weight Providers
 
-This package contains two implementations of [`IAccountWeightProvider`](./src/interfaces/IAccountWeightProvider.sol).  
-They provide different semantics for how accounts are deemed *eligible* and how their *weights* are tracked.
+This package contains the unbounded implementation of [`IAccountWeightProvider`](./src/interfaces/IAccountWeightProvider.sol).  
+It defines how accounts are deemed *eligible* and how their *weights* are tracked.
 
 ---
 
-## Implementations
+## Implementation
 
-### 1. AccountWeightProviderUnbounded
+### AccountWeightProviderUnbounded
 - **Graded weights**: any non-negative integer.
 - Weights are measured in **basis points** (`getWeightScale() = 10_000`).
 - Total weight = sum of all per-account weights (no maximum cap).
 - Useful when eligibility is proportional (e.g. multipliers, boosts, variable scoring).
-
-### 2. AccountWeightProviderBinary
-- **Binary weights**: either 0 (ineligible) or `getWeightScale()` (eligible).
-- Backed by the **Circles v2 Hub** trust graph at: 0xc12C1E50ABB450d6205Ea2C3Fa861b3B834d13e8
-- Each offer gets its own lazily-created [`EligibilityOrganization`](./src/AccountWeightProviderBinary.sol#L19),  
-which toggles Hub trust for accounts:
-- **Trust (eligible):** `HUB.trust(account, type(uint96).max)`
-- **Untrust (ineligible):** `HUB.trust(account, 0)`
-- Total weight = `totalEligibleAccounts × getWeightScale()`.
-- Useful when eligibility is **yes/no only**.
 
 ---
 
@@ -29,8 +19,8 @@ which toggles Hub trust for accounts:
 
 1. **Assign weights**  
  `setAccountWeights(offer, accounts, weights)`  
- - Unbounded: directly updates stored weights.  
- - Binary: delegates to the per-offer `EligibilityOrganization` to update Hub trust.
+ - Directly updates stored weights.  
+ - Zero weight removes eligibility.
 
 2. **Finalize weights**  
  `finalizeWeights()`  
@@ -55,15 +45,14 @@ All queries are **scoped to the calling offer** (`msg.sender`).
 - **Immutable admin**: set once in constructor, cannot be changed.  
 - **Idempotent updates**: setting the same weight twice has no effect.  
 - **Finalization**: once `finalizeWeights()` is called, further updates revert.  
-- **Binary provider** depends on Circles Hub — do not redeploy that contract.  
-- **Unbounded provider** is self-contained.
+- Self-contained, no dependency on the Circles Hub.
 
 ---
 
 ## Example Use Cases
 
-- **Unbounded:** reward boosts, loyalty multipliers, variable eligibility scoring.  
-- **Binary:** allowlist / denylist, strict membership gating.
+- Reward boosts, loyalty multipliers, variable eligibility scoring.  
+- Weighted allowlists or graded distribution caps.
 
 ---
 
@@ -81,7 +70,7 @@ It integrates with a pluggable [`IAccountWeightProvider`](./src/interfaces/IAcco
    - Registers an organization in the Hub and trusts the provided CRC ids.
 
 2. **Weight assignment**  
-   - Admin sets weights via the chosen provider (e.g. Binary or Unbounded).
+   - Admin sets weights via the unbounded provider.
 
 3. **Deposit**  
    - Admin calls `depositOfferTokens()`.  
@@ -104,9 +93,9 @@ It integrates with a pluggable [`IAccountWeightProvider`](./src/interfaces/IAcco
 
 - **Eligibility** is defined entirely by the configured `ACCOUNT_WEIGHT_PROVIDER`.  
 - **Per-account limit**:  limit(account) = BASE_OFFER_LIMIT_IN_CRC * weight(account) / WEIGHT_SCALE
-
 - **Total ERC-20 required**:  amount = (BASE_OFFER_LIMIT_IN_CRC * totalWeight * 10^TOKEN_DECIMALS)
 / (WEIGHT_SCALE * TOKEN_PRICE_IN_CRC)
+
 
 This ensures the contract can satisfy all claims if everyone spends to their limit.
 
@@ -138,40 +127,44 @@ This ensures the contract can satisfy all claims if everyone spends to their lim
 - Weighted airdrops with per-account caps.  
 - Cycle-created offers where eligibility is managed off-chain but enforced via Hub trust.
 
+---
+
+```mermaid
 sequenceDiagram
     autonumber
     participant Admin
-    participant WeightProvider as IAccountWeightProvider
+    participant Provider as IAccountWeightProvider (Unbounded)
     participant Offer as ERC20TokenOffer
     participant Hub as Circles Hub
     participant User
 
-    Admin->>WeightProvider: setAccountWeights(offer, accounts, weights)
+    Admin->>Provider: setAccountWeights(offer, accounts, weights)
     Admin->>Offer: depositOfferTokens()
-    Offer->>WeightProvider: getRequiredOfferTokenAmount()
-    Offer->>WeightProvider: finalizeWeights()
+    Offer->>Provider: getTotalWeight()
+    Offer->>Provider: finalizeWeights()
     Admin->>Offer: ERC20.approve(Offer, amount)
     Offer->>Admin: ERC20.transferFrom(Admin, Offer, amount)
 
-    Note over Offer,Hub: Offer window is now active (time OK + tokens deposited)
+    Note over Offer,Hub: Offer active when time window open and tokens deposited
 
     User->>Hub: safeTransferFrom(User → Offer, CRC id(s), value, data?)
     Hub->>Offer: onERC1155Received / onERC1155BatchReceived(...)
-    Offer->>WeightProvider: getAccountWeight(user), getTotalAccounts/Weight()
-    Offer->>User: ERC20.transfer(user, amount = value * 10^decimals / price)
+    Offer->>Provider: getAccountWeight(user)
+    Offer-->>User: ERC20.transfer(user, amount = value * 10^decimals / price)
     Offer->>Hub: safeTransferFrom(Offer → Admin, CRC id(s), value, pass-through data)
 
     Note over Admin,Offer: After end:
     Admin->>Offer: withdrawUnclaimedOfferTokens()
     Offer->>Admin: ERC20.transfer(Admin, leftover)
+```
 
-
+```mermaid
 flowchart TD
     A[Deploy Offer] --> B[Register org & trust accepted CRC]
-    B --> C[Admin sets weights in provider]
+    B --> C[Admin sets weights in Provider (Unbounded)]
     C --> D[Admin calls depositOfferTokens()]
-    D --> E[Offer pulls required ERC20<br/>and provider.finalizeWeights()]
-    E --> F{Now active? <br/>(time window && tokens deposited)}
+    D --> E[Offer pulls required ERC20<br/>and Provider.finalizeWeights()]
+    E --> F{Active? (time window && tokens deposited)}
     F -- No --> F
     F -- Yes --> G[User sends CRC via Hub]
     G --> H[Offer checks weight/limit]
@@ -182,17 +175,16 @@ flowchart TD
     K --> L{After end?}
     L -- No --> F
     L -- Yes --> M[Admin withdraws leftover ERC20]
+```
 
-
+```mermaid
 stateDiagram-v2
     [*] --> Uninitialized
     Uninitialized --> Funded: depositOfferTokens()
     Funded --> Active: time in [start,end]
     Active --> Ended: time > end
     Ended --> Drained: withdrawUnclaimedOfferTokens()
-
-
----
+```
 
 # ERC20 Token Offer Cycle
 
@@ -204,13 +196,13 @@ All offers in the cycle share a single [`IAccountWeightProvider`](./src/interfac
 ## What it does
 
 - **Time-based rotation:** Each offer occupies a slot of `OFFER_DURATION` seconds.  
-  `currentOfferId()` derives the active offer from `block.timestamp`.
+`currentOfferId()` derives the active offer from `block.timestamp`.
 - **Factory-driven:** The cycle uses an `IERC20TokenOfferFactory` to:
-  - Create the **shared weight provider** (binary or unbounded).
-  - Create per-period `ERC20TokenOffer` instances.
+- Create the **shared unbounded weight provider**.
+- Create per-period `ERC20TokenOffer` instances.
 - **Hub integration:** The cycle registers an org in the **Circles Hub** and proxies CRC:
-  - **Pre-claim:** CRC sent to the cycle is forwarded to the current offer.
-  - **Post-claim:** CRC coming back from the offer is forwarded onward to the admin.
+- **Pre-claim:** CRC sent to the cycle is forwarded to the current offer.
+- **Post-claim:** CRC coming back from the offer is forwarded onward to the admin.
 - **Soft lock (optional):** If enabled, a user can’t send CRC to the current offer if their **claimed ERC-20** exceeds their **current wallet balance** (prevents “sell-then-double-spend” patterns).
 
 ---
@@ -218,102 +210,32 @@ All offers in the cycle share a single [`IAccountWeightProvider`](./src/interfac
 ## Lifecycle
 
 1. **Initialize cycle**
-   - Constructor creates the **shared weight provider** (binary/unbounded), sets `OFFERS_START`, `OFFER_DURATION`, registers a Hub org, emits `CycleConfiguration`.
+ - Constructor creates the **shared unbounded weight provider**, sets `OFFERS_START`, `OFFER_DURATION`, registers a Hub org, emits `CycleConfiguration`.
 
 2. **Create next offer**
-   - Admin calls `createNextOffer(price, baseLimit, acceptedCRC[])`.
-   - Deploys the next `ERC20TokenOffer` (id = current + 1).
-   - Records `acceptedCRC` for that offer (Hub trust list).
+ - Admin calls `createNextOffer(price, baseLimit, acceptedCRC[])`.
+ - Deploys the next `ERC20TokenOffer` (id = current + 1).
+ - Records `acceptedCRC` for that offer (Hub trust list).
 
 3. **Fund next offer**
-   - Admin calls `depositNextOfferTokens()` (after approving the cycle).
-   - Cycle pulls ERC-20 from admin, safe-approves the new offer, calls `offer.depositOfferTokens()` (which finalizes weights).
+ - Admin calls `depositNextOfferTokens()` (after approving the cycle).
+ - Cycle pulls ERC-20 from admin, safe-approves the new offer, calls `offer.depositOfferTokens()` (which finalizes weights).
 
 4. **Active period (claims)**
-   - Users send CRC via Hub to the cycle.
-   - Cycle forwards CRC to the **current** offer (pre-claim path).
-   - Offer pays ERC-20 to user and calls back with CRC to the cycle (post-claim path).
-   - Cycle forwards CRC to the **admin** and emits `OfferClaimed`.
+ - Users send CRC via Hub to the cycle.
+ - Cycle forwards CRC to the **current** offer (pre-claim path).
+ - Offer pays ERC-20 to user and calls back with CRC to the cycle (post-claim path).
+ - Cycle forwards CRC to the **admin** and emits `OfferClaimed`.
 
 5. **Withdraw leftovers (past offers)**
-   - Admin calls `withdrawUnclaimedOfferTokens(offerId)` to recover unsold ERC-20.
+ - Admin calls `withdrawUnclaimedOfferTokens(offerId)` to recover unsold ERC-20.
 
----
-
-## Time model
-
-- `currentOfferId()`:
-  - `0` if `now < OFFERS_START`.
-  - Otherwise `((now - OFFERS_START) / OFFER_DURATION) + 1`.
-- The **next** offer is always `current + 1` in storage.
-
----
-
-## Key functions
-
-- **Creation & funding**
-  - `createNextOffer(tokenPriceInCRC, offerLimitInCRC, acceptedCRC[])`  
-    → deploys next offer, records accepted CRC ids.
-  - `depositNextOfferTokens()`  
-    → transfers ERC-20 from admin, approves and triggers `offer.depositOfferTokens()`.
-
-- **Active offer facade**
-  - `isOfferAvailable()` → passthrough to current offer.
-  - `isAccountEligible(account)` → passthrough to current offer.
-  - `getTotalEligibleAccounts()` / `getClaimantCount()` → passthrough to current offer.
-  - `getAccountOfferLimit(account)` / `getAvailableAccountOfferLimit(account)` → passthrough to current offer.
-
-- **Trust sync**
-  - `syncOfferTrust()` → sets Hub trust end-time for current offer’s accepted CRC ids.
-
-- **Withdraw**
-  - `withdrawUnclaimedOfferTokens(offerId)` → pulls leftover ERC-20 from past offer and forwards to admin.
-
-- **Weight admin**
-  - `setNextOfferAccountWeights(accounts[], weights[])`  
-    → writes to the **shared provider** under the **next offer’s address**.
-
----
-
-## Soft lock semantics
-
-- Enabled by `SOFT_LOCK_ENABLED`.
-- Before forwarding CRC **to the current offer**, the cycle checks: totalClaimed[user] <= OFFER_TOKEN.balanceOf(user)
-- If violated → `SoftLock()` (helps prevent users from claiming tokens and then immediately transferring them away while still attempting more CRC spending).
-
----
-
-## Data tracked by the cycle
-
-- `offers[offerId]` → offer instance.
-- `acceptedCRC[offerId]` → CRC ids trusted by that offer.
-- `totalClaimed[user]` → cumulative ERC-20 received by `user` across **all** offers in this cycle (used for soft lock + analytics).
-
----
-
-## Gotchas & tips
-
-- **Funding guard:** `createNextOffer` reverts if the next offer exists **and** is already funded (`NextOfferTokensAreAlreadyDeposited`).
-- **Approve before deposit:** Admin must `approve(cycle, requiredAmount)` before `depositNextOfferTokens()`.
-- **Shared provider scope:** When setting weights for the **next** offer, the cycle uses the next offer’s **address** as the scope key in the shared provider.
-- **Trust syncing:** `syncOfferTrust()` is a QoL helper; it updates Hub trust end-times to the current offer’s natural end.
-- **Readiness check:** `isOfferAvailable()` is true only when the **time window** is active **and** the offer is **funded**.
-
----
-
-## Typical sequence
-
-1) `createNextOffer(...)`  
-2) `setNextOfferAccountWeights(...)` (can be repeated)  
-3) `depositNextOfferTokens()` (finalizes weights)  
-4) Users claim during the window; cycle routes CRC and records `OfferClaimed`.  
-5) After end, `withdrawUnclaimedOfferTokens(offerId)` if needed.  
-
+```mermaid
 sequenceDiagram
     autonumber
     participant Admin
     participant Factory as IERC20TokenOfferFactory
-    participant Provider as IAccountWeightProvider
+    participant Provider as IAccountWeightProvider (Unbounded)
     participant Cycle as ERC20TokenOfferCycle
     participant Offer as ERC20TokenOffer
     participant Hub as Circles Hub
@@ -321,12 +243,12 @@ sequenceDiagram
 
     %% Init
     Admin->>Factory: (constructor) deploy Cycle
-    Factory-->>Cycle: createAccountWeightProvider(...)
+    Factory-->>Cycle: createAccountWeightProvider(address(Cycle))
     Cycle-->>Hub: registerOrganization(orgName)
 
     %% Prepare next period
     Admin->>Cycle: createNextOffer(price, baseLimit, acceptedCRC[])
-    Cycle->>Factory: createERC20TokenOffer(...)
+    Cycle->>Factory: createERC20TokenOffer(provider=shared, ...)
     Factory-->>Cycle: Offer address
     Cycle-->>Admin: NextOfferCreated(...)
 
@@ -357,9 +279,11 @@ sequenceDiagram
     Cycle->>Offer: withdrawUnclaimedOfferTokens()
     Offer-->>Cycle: leftover ERC20
     Cycle-->>Admin: ERC20.transfer(leftover)
+```
 
+```mermaid
 flowchart TD
-    A[Deploy Cycle] --> B[Factory creates shared Provider]
+    A[Deploy Cycle] --> B[Factory creates shared Unbounded Provider]
     B --> C[Register org in Hub]
     C --> D[Admin createNextOffer()]
     D --> E[Admin setNextOfferAccountWeights()]
@@ -377,6 +301,16 @@ flowchart TD
     N --> O{Period ended?}
     O -- No --> G
     O -- Yes --> P[Admin withdrawUnclaimedOfferTokens(offerId)]
+```
+---
+
+## Gotchas & tips
+
+- **Funding guard:** `createNextOffer` reverts if the next offer exists **and** is already funded.  
+- **Approve before deposit:** Admin must `approve(cycle, requiredAmount)` before `depositNextOfferTokens()`.  
+- **Shared provider scope:** When setting weights for the **next** offer, the cycle uses the next offer’s **address** as the scope key in the shared provider.  
+- **Trust syncing:** `syncOfferTrust()` updates Hub trust end-times to the current offer’s natural end.  
+- **Readiness check:** `isOfferAvailable()` is true only when the **time window** is active **and** the offer is **funded**.
 
 ---
 
@@ -384,7 +318,7 @@ flowchart TD
 
 The `ERC20TokenOfferFactory` is the entry point for creating:
 
-- **Account Weight Providers** (binary or unbounded)  
+- **Account Weight Providers** (unbounded only)  
 - **Standalone ERC20TokenOffer** contracts  
 - **ERC20TokenOfferCycle** contracts (time-based series of offers)
 
@@ -395,45 +329,34 @@ It also manages bookkeeping so offers and cycles can safely trust each other.
 ## Key Features
 
 - **Provider creation**
-  - `createAccountWeightProvider(admin, unbounded)` → deploys a new provider.  
-  - Emits `AccountWeightProviderCreated`.  
-  - Marks the provider in `createdAccountWeightProvider`.
+- `createAccountWeightProvider(admin)` → deploys a new unbounded provider.  
+- Emits `AccountWeightProviderCreated`.  
+- Marks the provider in `createdAccountWeightProvider`.
 
 - **Offer creation**
-  - `createERC20TokenOffer(...)` → deploys a new `ERC20TokenOffer`.  
-  - If `accountWeightProvider == address(0)`, the factory **auto-creates an unbounded provider** with `offerOwner` as admin.  
-  - Otherwise, the given provider must have been created by this factory.  
-  - Emits `ERC20TokenOfferCreated`.
+- `createERC20TokenOffer(...)` → deploys a new `ERC20TokenOffer`.  
+- If `accountWeightProvider == address(0)`, the factory **auto-creates an unbounded provider** with `offerOwner` as admin.  
+- Otherwise, the given provider must have been created by this factory.  
+- Emits `ERC20TokenOfferCreated`.
 
 - **Cycle creation**
-  - `createERC20TokenOfferCycle(...)` → deploys a new `ERC20TokenOfferCycle`.  
-  - The cycle itself creates its shared provider internally during construction.  
-  - Emits `ERC20TokenOfferCycleCreated`.  
-  - Marks the cycle in `createdCycle`.
+- `createERC20TokenOfferCycle(...)` → deploys a new `ERC20TokenOfferCycle`.  
+- The cycle itself creates its shared provider internally during construction.  
+- Emits `ERC20TokenOfferCycleCreated`.  
+- Marks the cycle in `createdCycle`.
 
 - **Transient flag**
-  - `isCreatedByCycle` is a `transient` boolean that flips to `true` only during the constructor call of an `ERC20TokenOffer` if it was spawned by a cycle.  
-  - Offers can check this flag to know whether they were created directly by a cycle or standalone.  
-  - The flag resets immediately after deployment.
-
----
-
-## Errors
-
-- `ZeroAdmin()` → provider admin cannot be zero.  
-- `UnknownProvider()` → provider not created by this factory.  
-- `ZeroOfferToken()` → ERC-20 token address cannot be zero.  
-- `ZeroPrice()` → token price in CRC must be > 0.  
-- `ZeroLimit()` → base per-account CRC limit must be > 0.  
-- `ZeroDuration()` → offer or cycle duration must be > 0.  
+- `isCreatedByCycle` is a `transient` boolean that flips to `true` only during the constructor call of an `ERC20TokenOffer` if it was spawned by a cycle.  
+- Offers can check this flag to know whether they were created directly by a cycle or standalone.  
+- The flag resets immediately after deployment.
 
 ---
 
 ## Events
 
-- `AccountWeightProviderCreated(provider, admin, unbounded)`  
+- `AccountWeightProviderCreated(provider, admin)`  
 - `ERC20TokenOfferCreated(tokenOffer, offerOwner, provider, offerToken, price, limit, duration, orgName, acceptedCRC)`  
-- `ERC20TokenOfferCycleCreated(offerCycle, cycleOwner, offerToken, offersStart, duration, unbounded, offerName, cycleName)`
+- `ERC20TokenOfferCycleCreated(offerCycle, cycleOwner, offerToken, offersStart, duration, offerName, cycleName)`
 
 ---
 
@@ -459,6 +382,7 @@ It also manages bookkeeping so offers and cycles can safely trust each other.
 - `isCreatedByCycle` is **transient**: only visible during an offer’s constructor.  
 - Off-chain indexers should listen to the events for reliable logs of new deployments.
 
+```mermaid
 sequenceDiagram
     autonumber
     participant Admin
@@ -477,7 +401,9 @@ sequenceDiagram
 
     Factory-->>Cycle: ERC20TokenOfferCreated(...)
     Cycle-->>Admin: NextOfferCreated(...)
+```
 
+```mermaid
 sequenceDiagram
     autonumber
     participant Deployer
@@ -485,11 +411,12 @@ sequenceDiagram
     participant Offer as ERC20TokenOffer
 
     Deployer->>Factory: createERC20TokenOffer(..., provider=0)
-    Factory-->>Factory: createAccountWeightProvider(admin=offerOwner, unbounded=true)
+    Factory-->>Factory: createAccountWeightProvider(admin=offerOwner)
     Factory->>Offer: new ERC20TokenOffer(..., provider=auto-created)
     Note over Factory: isCreatedByCycle remains false
 
     Factory-->>Deployer: ERC20TokenOfferCreated(...)
+```
 
 ## Usage
 

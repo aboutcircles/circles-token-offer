@@ -7,7 +7,6 @@ interface IERC20TokenOffer {
     error InvalidTokenId(uint256 id);
     error OfferActive();
     error OfferDepositClosed();
-    error OfferDurationIsZero();
     error OfferNotActive();
     error OfferTokensNotDeposited();
     error OnlyFromCycle();
