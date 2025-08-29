@@ -192,6 +192,192 @@ stateDiagram-v2
     Ended --> Drained: withdrawUnclaimedOfferTokens()
 
 
+---
+
+# ERC20 Token Offer Cycle
+
+`ERC20TokenOfferCycle` orchestrates a series of fixed-window ERC-20 offers that sell a token for CRC via the **Circles v2 Hub**.  
+All offers in the cycle share a single [`IAccountWeightProvider`](./src/interfaces/IAccountWeightProvider.sol), so eligibility and limits are centrally managed.
+
+---
+
+## What it does
+
+- **Time-based rotation:** Each offer occupies a slot of `OFFER_DURATION` seconds.  
+  `currentOfferId()` derives the active offer from `block.timestamp`.
+- **Factory-driven:** The cycle uses an `IERC20TokenOfferFactory` to:
+  - Create the **shared weight provider** (binary or unbounded).
+  - Create per-period `ERC20TokenOffer` instances.
+- **Hub integration:** The cycle registers an org in the **Circles Hub** and proxies CRC:
+  - **Pre-claim:** CRC sent to the cycle is forwarded to the current offer.
+  - **Post-claim:** CRC coming back from the offer is forwarded onward to the admin.
+- **Soft lock (optional):** If enabled, a user can’t send CRC to the current offer if their **claimed ERC-20** exceeds their **current wallet balance** (prevents “sell-then-double-spend” patterns).
+
+---
+
+## Lifecycle
+
+1. **Initialize cycle**
+   - Constructor creates the **shared weight provider** (binary/unbounded), sets `OFFERS_START`, `OFFER_DURATION`, registers a Hub org, emits `CycleConfiguration`.
+
+2. **Create next offer**
+   - Admin calls `createNextOffer(price, baseLimit, acceptedCRC[])`.
+   - Deploys the next `ERC20TokenOffer` (id = current + 1).
+   - Records `acceptedCRC` for that offer (Hub trust list).
+
+3. **Fund next offer**
+   - Admin calls `depositNextOfferTokens()` (after approving the cycle).
+   - Cycle pulls ERC-20 from admin, safe-approves the new offer, calls `offer.depositOfferTokens()` (which finalizes weights).
+
+4. **Active period (claims)**
+   - Users send CRC via Hub to the cycle.
+   - Cycle forwards CRC to the **current** offer (pre-claim path).
+   - Offer pays ERC-20 to user and calls back with CRC to the cycle (post-claim path).
+   - Cycle forwards CRC to the **admin** and emits `OfferClaimed`.
+
+5. **Withdraw leftovers (past offers)**
+   - Admin calls `withdrawUnclaimedOfferTokens(offerId)` to recover unsold ERC-20.
+
+---
+
+## Time model
+
+- `currentOfferId()`:
+  - `0` if `now < OFFERS_START`.
+  - Otherwise `((now - OFFERS_START) / OFFER_DURATION) + 1`.
+- The **next** offer is always `current + 1` in storage.
+
+---
+
+## Key functions
+
+- **Creation & funding**
+  - `createNextOffer(tokenPriceInCRC, offerLimitInCRC, acceptedCRC[])`  
+    → deploys next offer, records accepted CRC ids.
+  - `depositNextOfferTokens()`  
+    → transfers ERC-20 from admin, approves and triggers `offer.depositOfferTokens()`.
+
+- **Active offer facade**
+  - `isOfferAvailable()` → passthrough to current offer.
+  - `isAccountEligible(account)` → passthrough to current offer.
+  - `getTotalEligibleAccounts()` / `getClaimantCount()` → passthrough to current offer.
+  - `getAccountOfferLimit(account)` / `getAvailableAccountOfferLimit(account)` → passthrough to current offer.
+
+- **Trust sync**
+  - `syncOfferTrust()` → sets Hub trust end-time for current offer’s accepted CRC ids.
+
+- **Withdraw**
+  - `withdrawUnclaimedOfferTokens(offerId)` → pulls leftover ERC-20 from past offer and forwards to admin.
+
+- **Weight admin**
+  - `setNextOfferAccountWeights(accounts[], weights[])`  
+    → writes to the **shared provider** under the **next offer’s address**.
+
+---
+
+## Soft lock semantics
+
+- Enabled by `SOFT_LOCK_ENABLED`.
+- Before forwarding CRC **to the current offer**, the cycle checks: totalClaimed[user] <= OFFER_TOKEN.balanceOf(user)
+- If violated → `SoftLock()` (helps prevent users from claiming tokens and then immediately transferring them away while still attempting more CRC spending).
+
+---
+
+## Data tracked by the cycle
+
+- `offers[offerId]` → offer instance.
+- `acceptedCRC[offerId]` → CRC ids trusted by that offer.
+- `totalClaimed[user]` → cumulative ERC-20 received by `user` across **all** offers in this cycle (used for soft lock + analytics).
+
+---
+
+## Gotchas & tips
+
+- **Funding guard:** `createNextOffer` reverts if the next offer exists **and** is already funded (`NextOfferTokensAreAlreadyDeposited`).
+- **Approve before deposit:** Admin must `approve(cycle, requiredAmount)` before `depositNextOfferTokens()`.
+- **Shared provider scope:** When setting weights for the **next** offer, the cycle uses the next offer’s **address** as the scope key in the shared provider.
+- **Trust syncing:** `syncOfferTrust()` is a QoL helper; it updates Hub trust end-times to the current offer’s natural end.
+- **Readiness check:** `isOfferAvailable()` is true only when the **time window** is active **and** the offer is **funded**.
+
+---
+
+## Typical sequence
+
+1) `createNextOffer(...)`  
+2) `setNextOfferAccountWeights(...)` (can be repeated)  
+3) `depositNextOfferTokens()` (finalizes weights)  
+4) Users claim during the window; cycle routes CRC and records `OfferClaimed`.  
+5) After end, `withdrawUnclaimedOfferTokens(offerId)` if needed.  
+
+sequenceDiagram
+    autonumber
+    participant Admin
+    participant Factory as IERC20TokenOfferFactory
+    participant Provider as IAccountWeightProvider
+    participant Cycle as ERC20TokenOfferCycle
+    participant Offer as ERC20TokenOffer
+    participant Hub as Circles Hub
+    participant User
+
+    %% Init
+    Admin->>Factory: (constructor) deploy Cycle
+    Factory-->>Cycle: createAccountWeightProvider(...)
+    Cycle-->>Hub: registerOrganization(orgName)
+
+    %% Prepare next period
+    Admin->>Cycle: createNextOffer(price, baseLimit, acceptedCRC[])
+    Cycle->>Factory: createERC20TokenOffer(...)
+    Factory-->>Cycle: Offer address
+    Cycle-->>Admin: NextOfferCreated(...)
+
+    Admin->>Cycle: setNextOfferAccountWeights(accounts, weights)
+    Cycle->>Provider: setAccountWeights(nextOffer, accounts, weights)
+
+    %% Funding next offer (finalizes weights inside Offer)
+    Admin->>Cycle: depositNextOfferTokens()
+    Cycle->>Admin: ERC20.transferFrom(ADMIN, Cycle, required)
+    Cycle->>Offer: ERC20.approve(required)
+    Cycle->>Offer: depositOfferTokens()
+    Offer->>Provider: finalizeWeights()
+    Cycle-->>Admin: NextOfferTokensDeposited(...)
+
+    %% Claim during active window
+    User->>Hub: safeTransferFrom(User → Cycle, CRC id(s), value, data?)
+    Hub->>Cycle: onERC1155Received/Batch(...)
+    Cycle->>Offer: forward CRC (pre-claim)
+    Offer->>Provider: getAccountWeight(user), getTotalWeight()
+    Offer-->>User: ERC20.transfer(user, amount)
+    Offer->>Hub: safeTransferFrom(Offer → Cycle, CRC id(s), value, data(account, amount))
+    Hub->>Cycle: onERC1155Received/Batch(... post-claim)
+    Cycle-->>Admin: forward CRC to ADMIN
+    Cycle-->>Cycle: totalClaimed[account] += amount
+
+    %% After period end
+    Admin->>Cycle: withdrawUnclaimedOfferTokens(offerId)
+    Cycle->>Offer: withdrawUnclaimedOfferTokens()
+    Offer-->>Cycle: leftover ERC20
+    Cycle-->>Admin: ERC20.transfer(leftover)
+
+flowchart TD
+    A[Deploy Cycle] --> B[Factory creates shared Provider]
+    B --> C[Register org in Hub]
+    C --> D[Admin createNextOffer()]
+    D --> E[Admin setNextOfferAccountWeights()]
+    E --> F[Admin depositNextOfferTokens()]
+    F --> G{Window active?}
+    G -- No --> G
+    G -- Yes --> H[User sends CRC → Cycle]
+    H --> I[Cycle forwards CRC → current Offer]
+    I --> J[Offer checks weights & limits]
+    J --> K{Within limit?}
+    K -- No --> K1[Revert ExceedsOfferLimit]
+    K -- Yes --> L[Offer pays ERC20 to user]
+    L --> M[Offer returns CRC → Cycle]
+    M --> N[Cycle forwards CRC → Admin<br/>and updates totalClaimed]
+    N --> O{Period ended?}
+    O -- No --> G
+    O -- Yes --> P[Admin withdrawUnclaimedOfferTokens(offerId)]
+
 ## Usage
 
 ### Build
