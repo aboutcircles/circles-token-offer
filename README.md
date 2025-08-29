@@ -378,6 +378,119 @@ flowchart TD
     O -- No --> G
     O -- Yes --> P[Admin withdrawUnclaimedOfferTokens(offerId)]
 
+---
+
+# ERC20 Token Offer Factory
+
+The `ERC20TokenOfferFactory` is the entry point for creating:
+
+- **Account Weight Providers** (binary or unbounded)  
+- **Standalone ERC20TokenOffer** contracts  
+- **ERC20TokenOfferCycle** contracts (time-based series of offers)
+
+It also manages bookkeeping so offers and cycles can safely trust each other.
+
+---
+
+## Key Features
+
+- **Provider creation**
+  - `createAccountWeightProvider(admin, unbounded)` → deploys a new provider.  
+  - Emits `AccountWeightProviderCreated`.  
+  - Marks the provider in `createdAccountWeightProvider`.
+
+- **Offer creation**
+  - `createERC20TokenOffer(...)` → deploys a new `ERC20TokenOffer`.  
+  - If `accountWeightProvider == address(0)`, the factory **auto-creates an unbounded provider** with `offerOwner` as admin.  
+  - Otherwise, the given provider must have been created by this factory.  
+  - Emits `ERC20TokenOfferCreated`.
+
+- **Cycle creation**
+  - `createERC20TokenOfferCycle(...)` → deploys a new `ERC20TokenOfferCycle`.  
+  - The cycle itself creates its shared provider internally during construction.  
+  - Emits `ERC20TokenOfferCycleCreated`.  
+  - Marks the cycle in `createdCycle`.
+
+- **Transient flag**
+  - `isCreatedByCycle` is a `transient` boolean that flips to `true` only during the constructor call of an `ERC20TokenOffer` if it was spawned by a cycle.  
+  - Offers can check this flag to know whether they were created directly by a cycle or standalone.  
+  - The flag resets immediately after deployment.
+
+---
+
+## Errors
+
+- `ZeroAdmin()` → provider admin cannot be zero.  
+- `UnknownProvider()` → provider not created by this factory.  
+- `ZeroOfferToken()` → ERC-20 token address cannot be zero.  
+- `ZeroPrice()` → token price in CRC must be > 0.  
+- `ZeroLimit()` → base per-account CRC limit must be > 0.  
+- `ZeroDuration()` → offer or cycle duration must be > 0.  
+
+---
+
+## Events
+
+- `AccountWeightProviderCreated(provider, admin, unbounded)`  
+- `ERC20TokenOfferCreated(tokenOffer, offerOwner, provider, offerToken, price, limit, duration, orgName, acceptedCRC)`  
+- `ERC20TokenOfferCycleCreated(offerCycle, cycleOwner, offerToken, offersStart, duration, unbounded, offerName, cycleName)`
+
+---
+
+## Example Flows
+
+### Standalone Offer
+1. Call `createERC20TokenOffer(...)` with `accountWeightProvider = address(0)` → factory auto-creates an unbounded provider.  
+2. The offer is deployed and linked to that provider.  
+3. Admin can then set weights and deposit tokens in the offer.
+
+### Offer Cycle
+1. Call `createERC20TokenOfferCycle(...)`.  
+2. The cycle deploys with its own shared provider.  
+3. The cycle later calls `createNextOffer(...)` internally, which routes back to the factory.  
+4. Factory flips `isCreatedByCycle = true` so the new offer knows it belongs to a cycle.  
+
+---
+
+## Integration Notes
+
+- All providers and cycles are tracked on-chain via `createdAccountWeightProvider` and `createdCycle`.  
+- Default provider type is **unbounded** if none is given.  
+- `isCreatedByCycle` is **transient**: only visible during an offer’s constructor.  
+- Off-chain indexers should listen to the events for reliable logs of new deployments.
+
+sequenceDiagram
+    autonumber
+    participant Admin
+    participant Cycle as ERC20TokenOfferCycle
+    participant Factory as ERC20TokenOfferFactory
+    participant Offer as ERC20TokenOffer
+
+    Admin->>Cycle: createNextOffer(...)
+    Cycle->>Factory: createERC20TokenOffer(..., provider=shared, ...)
+    Note over Factory: createdCycle[Cycle] == true
+
+    Factory->>Factory: isCreatedByCycle = true (transient)
+    Factory->>Offer: new ERC20TokenOffer(...)
+    Offer-->>Offer: constructor reads<br/>IERC20TokenOfferFactory(msg.sender).isCreatedByCycle()
+    Factory->>Factory: isCreatedByCycle = false
+
+    Factory-->>Cycle: ERC20TokenOfferCreated(...)
+    Cycle-->>Admin: NextOfferCreated(...)
+
+sequenceDiagram
+    autonumber
+    participant Deployer
+    participant Factory as ERC20TokenOfferFactory
+    participant Offer as ERC20TokenOffer
+
+    Deployer->>Factory: createERC20TokenOffer(..., provider=0)
+    Factory-->>Factory: createAccountWeightProvider(admin=offerOwner, unbounded=true)
+    Factory->>Offer: new ERC20TokenOffer(..., provider=auto-created)
+    Note over Factory: isCreatedByCycle remains false
+
+    Factory-->>Deployer: ERC20TokenOfferCreated(...)
+
 ## Usage
 
 ### Build
