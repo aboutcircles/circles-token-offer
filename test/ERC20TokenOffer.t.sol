@@ -33,7 +33,11 @@ contract ERC20TokenOfferTest is Test {
         offersStart = block.timestamp + 1 days;
 
         factory = new ERC20TokenOfferFactory();
-        cycle = ERC20TokenOfferCycle(factory.createERC20TokenOfferCycle(cycleOwner, offerToken, offersStart, offerDuration, enableSoftLock, offerName, cycleName));
+        cycle = ERC20TokenOfferCycle(
+            factory.createERC20TokenOfferCycle(
+                cycleOwner, offerToken, offersStart, offerDuration, enableSoftLock, offerName, cycleName
+            )
+        );
 
         // make owner approve cycle to spend all gno
         vm.prank(cycleOwner);
@@ -71,7 +75,7 @@ contract ERC20TokenOfferTest is Test {
 
         // move in time
         vm.warp(offersStart + 1);
-        
+
         // last sync cycle/offer trust
         cycle.syncOfferTrust();
     }
