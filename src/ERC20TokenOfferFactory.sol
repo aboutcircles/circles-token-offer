@@ -7,8 +7,14 @@ import {ERC20TokenOffer} from "src/ERC20TokenOffer.sol";
 import {ERC20TokenOfferCycle} from "src/ERC20TokenOfferCycle.sol";
 
 contract ERC20TokenOfferFactory {
-    error AccountWeightProviderShouldHaveAdmin();
-    error InvalidAccountWeightProvider();
+    error ZeroAdmin();
+    error UnknownProvider();
+    error ZeroOfferToken();
+    error ZeroPrice();
+    error ZeroLimit();
+    error ZeroDuration();
+
+    event AccountWeightProviderCreated(address indexed provider, address indexed admin, bool unbounded);
 
     event ERC20TokenOfferCreated(
         address indexed tokenOffer,
@@ -33,16 +39,17 @@ contract ERC20TokenOfferFactory {
         string cycleName
     );
 
-    mapping(address => bool) internal createdAccountWeightProvider;
-    mapping(address => bool) internal createdCycle;
+    mapping(address => bool) public createdAccountWeightProvider;
+    mapping(address => bool) public createdCycle;
     bool public transient isCreatedByCycle;
 
     function createAccountWeightProvider(address admin, bool unbounded) public returns (address provider) {
-        if (admin == address(0)) revert AccountWeightProviderShouldHaveAdmin();
+        if (admin == address(0)) revert ZeroAdmin();
         provider = unbounded
             ? address(new AccountWeightProviderUnbounded(admin))
             : address(new AccountWeightProviderBinary(admin));
         createdAccountWeightProvider[provider] = true;
+        emit AccountWeightProviderCreated(provider, admin, unbounded);
     }
 
     function createERC20TokenOffer(
@@ -56,8 +63,13 @@ contract ERC20TokenOfferFactory {
         string memory orgName,
         address[] memory acceptedCRC
     ) external returns (address tokenOffer) {
+        if (offerToken == address(0)) revert ZeroOfferToken();
+        if (tokenPriceInCRC == 0) revert ZeroPrice();
+        if (offerLimitInCRC == 0) revert ZeroLimit();
+        if (offerDuration == 0) revert ZeroDuration();
+
         if (accountWeightProvider == address(0)) accountWeightProvider = createAccountWeightProvider(offerOwner, true);
-        else if (!createdAccountWeightProvider[accountWeightProvider]) revert InvalidAccountWeightProvider();
+        else if (!createdAccountWeightProvider[accountWeightProvider]) revert UnknownProvider();
         if (createdCycle[msg.sender]) isCreatedByCycle = true;
 
         tokenOffer = address(
@@ -98,6 +110,9 @@ contract ERC20TokenOfferFactory {
         string memory offerName,
         string memory cycleName
     ) external returns (address offerCycle) {
+        if (offerToken == address(0)) revert ZeroOfferToken();
+        if (offerDuration == 0) revert ZeroDuration();
+
         offerCycle = address(
             new ERC20TokenOfferCycle(
                 accountWeightProviderUnbounded,

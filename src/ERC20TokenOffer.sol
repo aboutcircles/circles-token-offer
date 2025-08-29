@@ -23,9 +23,6 @@ contract ERC20TokenOffer {
                              Errors
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice Thrown when deploying with zero `offerDuration`.
-    error OfferDurationIsZero();
-
     /// @notice Thrown when a non-owner calls an owner-only function.
     error OnlyOwner();
 
@@ -201,7 +198,6 @@ contract ERC20TokenOffer {
         TOKEN_DECIMALS = IERC20(TOKEN).decimals();
         TOKEN_PRICE_IN_CRC = tokenPriceInCRC;
         BASE_OFFER_LIMIT_IN_CRC = offerLimitInCRC;
-        if (offerDuration == 0) revert OfferDurationIsZero();
         OFFER_START = offerStart;
         OFFER_END = offerStart + offerDuration;
 
