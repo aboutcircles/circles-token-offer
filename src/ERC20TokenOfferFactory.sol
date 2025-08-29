@@ -10,6 +10,29 @@ contract ERC20TokenOfferFactory {
     error AccountWeightProviderShouldHaveAdmin();
     error InvalidAccountWeightProvider();
 
+    event ERC20TokenOfferCreated(
+        address indexed tokenOffer,
+        address indexed offerOwner,
+        address indexed accountWeightProvider,
+        address offerToken,
+        uint256 tokenPriceInCRC,
+        uint256 offerLimitInCRC,
+        uint256 offerDuration,
+        string orgName,
+        address[] acceptedCRC
+    );
+
+    event ERC20TokenOfferCycleCreated(
+        address indexed offerCycle,
+        address indexed cycleOwner,
+        address indexed offerToken,
+        uint256 offersStart,
+        uint256 offerDuration,
+        bool accountWeightProviderUnbounded,
+        string offerName,
+        string cycleName
+    );
+
     mapping(address => bool) internal createdAccountWeightProvider;
     mapping(address => bool) internal createdCycle;
     bool public transient isCreatedByCycle;
@@ -52,6 +75,17 @@ contract ERC20TokenOfferFactory {
         );
 
         isCreatedByCycle = false;
+        emit ERC20TokenOfferCreated(
+            tokenOffer,
+            offerOwner,
+            accountWeightProvider,
+            offerToken,
+            tokenPriceInCRC,
+            offerLimitInCRC,
+            offerDuration,
+            orgName,
+            acceptedCRC
+        );
     }
 
     function createERC20TokenOfferCycle(
@@ -77,5 +111,15 @@ contract ERC20TokenOfferFactory {
             )
         );
         createdCycle[offerCycle] = true;
+        emit ERC20TokenOfferCycleCreated(
+            offerCycle,
+            cycleOwner,
+            offerToken,
+            offersStart,
+            offerDuration,
+            accountWeightProviderUnbounded,
+            offerName,
+            cycleName
+        );
     }
 }
