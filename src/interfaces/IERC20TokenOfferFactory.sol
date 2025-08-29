@@ -18,7 +18,7 @@ interface IERC20TokenOfferFactory {
         address[] memory acceptedCRC
     ) external returns (address tokenOffer);
     function createERC20TokenOfferCycle(
-        address accountWeightProvider,
+        bool accountWeightProviderUnbounded,
         address cycleOwner,
         address offerToken,
         uint256 offersStart,

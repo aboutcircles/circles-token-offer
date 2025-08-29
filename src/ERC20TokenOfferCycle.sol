@@ -20,6 +20,15 @@ contract ERC20TokenOfferCycle {
                              Events
     //////////////////////////////////////////////////////////////*/
 
+    event CycleConfiguration(
+        address indexed admin,
+        address indexed accountWeightProvider,
+        address indexed offerToken,
+        uint256 offersStart,
+        uint256 offerDuration,
+        bool softLockEnabled
+    );
+
     event NextOfferCreated(
         address indexed nextOffer,
         uint256 indexed tokenPriceInCRC,
@@ -27,11 +36,19 @@ contract ERC20TokenOfferCycle {
         address[] acceptedCRC
     );
 
+    event NextOfferTokensDeposited(address indexed nextOffer, uint256 indexed amount);
+
+    event OfferTrustSynced(uint256 indexed offerId, address indexed offer);
+
+    event OfferClaimed(address indexed offer, address indexed account, uint256 indexed received, uint256 spent);
+
+    event UnclaimedTokensWithdrawn(address indexed offer, uint256 indexed amount);
+
+    /// @notice Circles v2 Hub.
+    IHub public constant HUB = IHub(address(0xc12C1E50ABB450d6205Ea2C3Fa861b3B834d13e8));
     IERC20TokenOfferFactory public immutable OFFER_FACTORY;
     address public immutable ADMIN;
     IAccountWeightProvider public immutable ACCOUNT_WEIGHT_PROVIDER;
-    /// @notice Circles v2 Hub.
-    IHub public constant HUB = IHub(address(0xc12C1E50ABB450d6205Ea2C3Fa861b3B834d13e8));
 
     address public immutable OFFER_TOKEN;
     uint256 public immutable OFFERS_START;
@@ -58,7 +75,7 @@ contract ERC20TokenOfferCycle {
     }
 
     constructor(
-        address accountWeightProvider,
+        bool accountWeightProviderUnbounded,
         address admin,
         address offerToken,
         uint256 offersStart,
@@ -68,7 +85,9 @@ contract ERC20TokenOfferCycle {
         string memory orgName
     ) {
         OFFER_FACTORY = IERC20TokenOfferFactory(msg.sender);
-        ACCOUNT_WEIGHT_PROVIDER = IAccountWeightProvider(accountWeightProvider);
+        ACCOUNT_WEIGHT_PROVIDER = IAccountWeightProvider(
+            OFFER_FACTORY.createAccountWeightProvider(address(this), accountWeightProviderUnbounded)
+        );
         ADMIN = admin;
         OFFER_TOKEN = offerToken;
         OFFERS_START = offersStart;
@@ -78,6 +97,10 @@ contract ERC20TokenOfferCycle {
 
         // register an org
         HUB.registerOrganization(orgName, 0);
+
+        emit CycleConfiguration(
+            ADMIN, address(ACCOUNT_WEIGHT_PROVIDER), OFFER_TOKEN, OFFERS_START, OFFER_DURATION, SOFT_LOCK_ENABLED
+        );
     }
 
     function currentOfferId() public view returns (uint256) {
@@ -133,6 +156,7 @@ contract ERC20TokenOfferCycle {
                 ++i;
             }
         }
+        emit OfferTrustSynced(currentId, address(offers[currentId]));
     }
 
     // offer functions
@@ -176,12 +200,17 @@ contract ERC20TokenOfferCycle {
         OFFER_TOKEN.safeApprove(address(nextOffer), requiredAmount);
 
         nextOffer.depositOfferTokens();
+
+        emit NextOfferTokensDeposited(address(nextOffer), requiredAmount);
     }
 
     function withdrawUnclaimedOfferTokens(uint256 offerId) external onlyAdmin {
         IERC20TokenOffer offer = offers[offerId];
         uint256 amount = offer.withdrawUnclaimedOfferTokens();
-        if (amount > 0) OFFER_TOKEN.safeTransfer(ADMIN, amount);
+        if (amount > 0) {
+            OFFER_TOKEN.safeTransfer(ADMIN, amount);
+            emit UnclaimedTokensWithdrawn(address(offer), amount);
+        }
     }
 
     // callback
@@ -196,6 +225,7 @@ contract ERC20TokenOfferCycle {
             // track the claim
             (address account, uint256 amount) = abi.decode(data, (address, uint256));
             totalClaimed[account] += amount;
+            emit OfferClaimed(offerAddress, account, amount, value);
             // transfer to admin
             HUB.safeTransferFrom(address(this), ADMIN, id, value, "");
             return this.onERC1155Received.selector;
@@ -220,8 +250,9 @@ contract ERC20TokenOfferCycle {
         address offerAddress = address(currentOffer());
         if (from == offerAddress) {
             // track the claim
-            (address account, uint256 amount) = abi.decode(data, (address, uint256));
+            (address account, uint256 amount, uint256 value) = abi.decode(data, (address, uint256, uint256));
             totalClaimed[account] += amount;
+            emit OfferClaimed(offerAddress, account, amount, value);
             // transfer to admin
             HUB.safeBatchTransferFrom(address(this), ADMIN, ids, values, "");
             return this.onERC1155BatchReceived.selector;

@@ -55,7 +55,7 @@ contract ERC20TokenOfferFactory {
     }
 
     function createERC20TokenOfferCycle(
-        address accountWeightProvider,
+        bool accountWeightProviderUnbounded,
         address cycleOwner,
         address offerToken,
         uint256 offersStart,
@@ -64,11 +64,9 @@ contract ERC20TokenOfferFactory {
         string memory offerName,
         string memory cycleName
     ) external returns (address offerCycle) {
-        if (accountWeightProvider == address(0)) accountWeightProvider = createAccountWeightProvider(cycleOwner, true);
-        else if (!createdAccountWeightProvider[accountWeightProvider]) revert InvalidAccountWeightProvider();
         offerCycle = address(
             new ERC20TokenOfferCycle(
-                accountWeightProvider,
+                accountWeightProviderUnbounded,
                 cycleOwner,
                 offerToken,
                 offersStart,

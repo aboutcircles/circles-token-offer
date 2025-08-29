@@ -15,7 +15,7 @@ import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 /// - `BASE_OFFER_LIMIT_IN_CRC` is scaled by the per-account weight: limit(account) = base * weight / WEIGHT_SCALE.
 /// - Admin must pre-deposit the exact required token amount with `depositOfferTokens()` (finalizes weights).
 /// - Availability requires: time window active AND tokens deposited.
-/// - If `CREATED_BY_CYCLE == true`, only the Cycle owner can initiate claims (enforced in callbacks).
+/// - If `CREATED_BY_CYCLE == true`, only the Cycle can initiate claims (enforced in callbacks).
 contract ERC20TokenOffer {
     using SafeTransferLib for address;
 
@@ -270,10 +270,8 @@ contract ERC20TokenOffer {
     /// - Requires prior ERC-20 approval from `OWNER` to this contract for at least the required amount.
     /// - Calls `ACCOUNT_WEIGHT_PROVIDER.finalizeWeights()` to freeze eligibility/weights.
     /// - Reverts with {OfferDepositClosed} if already deposited (re-deposit not allowed).
-    /// - (Optional) Uncomment the time check to forbid deposits after start.
     function depositOfferTokens() external onlyOwner {
-        // Optional: forbid deposits after start
-        // if (block.timestamp > OFFER_START) revert OfferDepositClosed();
+        if (!CREATED_BY_CYCLE && block.timestamp > OFFER_START) revert OfferDepositClosed();
 
         if (isOfferTokensDeposited) revert OfferDepositClosed();
 
@@ -392,7 +390,7 @@ contract ERC20TokenOffer {
         if (CREATED_BY_CYCLE && from != OWNER) revert OnlyFromCycle();
         if (CREATED_BY_CYCLE) from = abi.decode(data, (address));
         uint256 amount = _claimOffer(from, totalValue);
-        data = CREATED_BY_CYCLE ? abi.encode(from, amount) : new bytes(0);
+        data = CREATED_BY_CYCLE ? abi.encode(from, amount, totalValue) : new bytes(0);
 
         // Forward CRC batch to the owner
         HUB.safeBatchTransferFrom(address(this), OWNER, ids, values, data);
