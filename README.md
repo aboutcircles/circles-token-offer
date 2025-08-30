@@ -437,5 +437,5 @@ $ forge test
 ### Deploy
 
 ```shell
-$ forge script script/ERC20TokenOfferFactory.s.sol:ERC20TokenOfferFactory --rpc-url <your_rpc_url> --private-key <your_private_key>
+$ forge script script/ERC20TokenOfferFactory.s.sol:ERC20TokenOfferFactoryScript --rpc-url <your_rpc_url> --private-key <your_private_key>
 ```
