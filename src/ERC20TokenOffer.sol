@@ -267,9 +267,7 @@ contract ERC20TokenOffer {
     /// - Calls `ACCOUNT_WEIGHT_PROVIDER.finalizeWeights()` to freeze eligibility/weights.
     /// - Reverts with {OfferDepositClosed} if already deposited (re-deposit not allowed).
     function depositOfferTokens() external onlyOwner {
-        if (!CREATED_BY_CYCLE && block.timestamp > OFFER_START) revert OfferDepositClosed();
-
-        if (isOfferTokensDeposited) revert OfferDepositClosed();
+        if (isOfferTokensDeposited || block.timestamp > OFFER_START) revert OfferDepositClosed();
 
         uint256 amount = getRequiredOfferTokenAmount();
 
@@ -323,22 +321,41 @@ contract ERC20TokenOffer {
         emit OfferClaimed(account, value, amount);
     }
 
+    /// @notice Resolve the ultimate CRC beneficiary when the offer is created by Cycle.
+    /// @dev
+    /// - Must only be called when `CREATED_BY_CYCLE` is true (enforced by the caller).
+    /// - Requires `from == OWNER` (Cycle), otherwise reverts.
+    /// - Decodes the beneficiary address from `data` (expects `abi.encode(address)`).
+    /// - Reverts if `data` is malformed or not an encoded address.
+    /// @param from The original CRC sender (must be `OWNER` when called under Cycle flow).
+    /// @param data ABI-encoded beneficiary address (`abi.encode(address)`).
+    /// @return sender The decoded beneficiary address.
+    /// @custom:reverts OnlyFromCycle If `from != OWNER`.
+    function _resolveSender(address from, bytes memory data) internal view returns (address sender) {
+        if (from != OWNER) revert OnlyFromCycle();
+        sender = abi.decode(data, (address));
+    }
+
     /*//////////////////////////////////////////////////////////////
                          ERC-1155 Receiver (Hub)
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice Single-token CRC receipt handler (called by Hub), executes a claim and forwards CRC to OWNER.
+    /// @notice Single-token CRC receipt handler (called by Hub), executes a claim and forwards CRC to `OWNER`.
     /// @dev
-    /// - Validates `id` is a trusted CRC for this offer via `HUB.isTrusted(address(this), address(uint160(id)))`.
+    /// - Validates `id` as a trusted CRC for this offer via
+    ///   `HUB.isTrusted(address(this), address(uint160(id)))`.
     /// - If `CREATED_BY_CYCLE`:
-    ///   - Only allows to be called by Cycle.
-    ///   - `from` is overwritten from the Cycle encoded `data` to the final beneficiary address.
-    ///   - Forwards `(from, amount)` as encoded data to the Cycle transfer.
+    ///   - `from` must be `OWNER` (Cycle) or the call reverts inside `_resolveSender`.
+    ///   - Beneficiary address is taken from `data` via `_resolveSender`.
+    ///   - Forwards `(from, amount)` as encoded data on the Hub transfer to `OWNER`.
     /// - Returns the ERC-1155 receiver selector.
-    /// @param from The original CRC sender.
+    /// @param from The original CRC sender reported by Hub (Cycle when `CREATED_BY_CYCLE`).
     /// @param id The CRC id being transferred in.
     /// @param value The CRC amount.
-    /// @param data Optional encoded data (used by Cycle flow to pass beneficiary address).
+    /// @param data Optional encoded data. When `CREATED_BY_CYCLE == true`, must be `abi.encode(address beneficiary)`.
+    /// @return The ERC-1155 `onERC1155Received` selector.
+    /// @custom:reverts InvalidTokenId If `id` is not trusted for this offer.
+    /// @custom:reverts OnlyFromCycle If `CREATED_BY_CYCLE` and `from != OWNER`.
     function onERC1155Received(address, address from, uint256 id, uint256 value, bytes memory data)
         external
         onlyHub
@@ -347,8 +364,7 @@ contract ERC20TokenOffer {
         returns (bytes4)
     {
         if (!HUB.isTrusted(address(this), address(uint160(id)))) revert InvalidTokenId(id);
-        if (CREATED_BY_CYCLE && from != OWNER) revert OnlyFromCycle();
-        if (CREATED_BY_CYCLE) from = abi.decode(data, (address));
+        if (CREATED_BY_CYCLE) from = _resolveSender(from, data);
 
         uint256 amount = _claimOffer(from, value);
         data = CREATED_BY_CYCLE ? abi.encode(from, amount) : new bytes(0);
@@ -359,15 +375,21 @@ contract ERC20TokenOffer {
         return this.onERC1155Received.selector;
     }
 
-    /// @notice Batch CRC receipt handler (called by Hub), executes a claim for the sum and forwards CRC batch to OWNER.
+    /// @notice Batch CRC receipt handler (called by Hub), executes a claim on the sum and forwards CRCs to `OWNER`.
     /// @dev
-    /// - Sums `values` after verifying all `ids` are trusted CRC for this offer.
-    /// - If `CREATED_BY_CYCLE`, same flow as the single-token version (beneficiary from Cycle encoded `data`).
+    /// - Verifies each `ids[i]` is a trusted CRC for this offer and sums `values`.
+    /// - If `CREATED_BY_CYCLE`:
+    ///   - `from` must be `OWNER` (Cycle) or the call reverts inside `_resolveSender`.
+    ///   - Beneficiary address is taken from `data` via `_resolveSender`.
+    ///   - Forwards `(from, amount, totalValue)` as encoded data on the Hub batch transfer to `OWNER`.
     /// - Returns the ERC-1155 batch receiver selector.
-    /// @param from The original CRC sender.
+    /// @param from The original CRC sender reported by Hub (Cycle when `CREATED_BY_CYCLE`).
     /// @param ids The CRC ids being transferred in.
     /// @param values The CRC amounts per id.
-    /// @param data Optional encoded data (used by Cycle flow to pass beneficiary address).
+    /// @param data Optional encoded data. When `CREATED_BY_CYCLE == true`, must be `abi.encode(address beneficiary)`.
+    /// @return The ERC-1155 `onERC1155BatchReceived` selector.
+    /// @custom:reverts InvalidTokenId If any `ids[i]` is not trusted for this offer.
+    /// @custom:reverts OnlyFromCycle If `CREATED_BY_CYCLE` and `from != OWNER`.
     function onERC1155BatchReceived(
         address,
         address from,
@@ -383,8 +405,8 @@ contract ERC20TokenOffer {
                 ++i;
             }
         }
-        if (CREATED_BY_CYCLE && from != OWNER) revert OnlyFromCycle();
-        if (CREATED_BY_CYCLE) from = abi.decode(data, (address));
+        if (CREATED_BY_CYCLE) from = _resolveSender(from, data);
+
         uint256 amount = _claimOffer(from, totalValue);
         data = CREATED_BY_CYCLE ? abi.encode(from, amount, totalValue) : new bytes(0);
 
