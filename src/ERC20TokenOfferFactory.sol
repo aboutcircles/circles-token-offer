@@ -52,7 +52,8 @@ contract ERC20TokenOfferFactory {
     /// @param offerToken The ERC-20 token being sold by the offer.
     /// @param tokenPriceInCRC How many CRC units are required per 1 token unit.
     /// @param offerLimitInCRC Base per-account CRC limit before weighting.
-    /// @param offerDuration Duration of the offer, in seconds.
+    /// @param offerStart The start of the offer, timestamp.
+    /// @param offerEnd The end of the offer, timestamp.
     /// @param orgName Human-readable org/offer name to register in the Hub (used by the offer).
     /// @param acceptedCRC CRC ids (addresses) that the offer trusts/accepts.
     event ERC20TokenOfferCreated(
@@ -62,7 +63,8 @@ contract ERC20TokenOfferFactory {
         address offerToken,
         uint256 tokenPriceInCRC,
         uint256 offerLimitInCRC,
-        uint256 offerDuration,
+        uint256 offerStart,
+        uint256 offerEnd,
         string orgName,
         address[] acceptedCRC
     );
@@ -184,7 +186,8 @@ contract ERC20TokenOfferFactory {
             offerToken,
             tokenPriceInCRC,
             offerLimitInCRC,
-            offerDuration,
+            offerStart,
+            offerStart + offerDuration,
             orgName,
             acceptedCRC
         );

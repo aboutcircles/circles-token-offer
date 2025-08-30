@@ -2,6 +2,7 @@
 pragma solidity >=0.8.28;
 
 interface IHub {
+    function day(uint256 timestamp) external view returns (uint64);
     /// @notice returns the value of tokens of token type `id` owned by `account` at current day.
     function balanceOf(address account, uint256 id) external view returns (uint256);
     /// @notice burns ERC1155 amount of id owned by caller.

@@ -17,7 +17,8 @@ interface IERC20TokenOfferFactory {
         address offerToken,
         uint256 tokenPriceInCRC,
         uint256 offerLimitInCRC,
-        uint256 offerDuration,
+        uint256 offerStart,
+        uint256 offerEnd,
         string orgName,
         address[] acceptedCRC
     );
