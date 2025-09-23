@@ -284,7 +284,7 @@ contract ERC20TokenOfferCycle {
     /// @dev Sets `trust(receiver, offerEnd)` for each accepted CRC id of the current offer.
     function syncOfferTrust() external {
         uint256 currentId = currentOfferId();
-        uint96 offerEnd = uint96(OFFERS_START + (OFFER_DURATION * currentId));
+        uint96 offerEnd = uint96(OFFERS_START + (OFFER_DURATION * currentId)) - 1;
         address[] memory trustReceivers = acceptedCRC[currentId];
 
         for (uint256 i; i < trustReceivers.length;) {

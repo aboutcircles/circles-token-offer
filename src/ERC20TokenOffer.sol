@@ -104,7 +104,7 @@ contract ERC20TokenOffer {
     /// @notice Offer start timestamp (inclusive).
     uint256 public immutable OFFER_START;
 
-    /// @notice Offer end timestamp (inclusive).
+    /// @notice Offer end timestamp (exclusive).
     uint256 public immutable OFFER_END;
 
     /// @notice Scale factor used by the weight provider (e.g., 10_000 for basis points).
@@ -143,9 +143,9 @@ contract ERC20TokenOffer {
     }
 
     /// @notice Ensures the offer is currently active by time.
-    /// @dev Active if `OFFER_START <= block.timestamp <= OFFER_END`. Reverts with {OfferNotActive} otherwise.
+    /// @dev Active if `OFFER_START <= block.timestamp < OFFER_END`. Reverts with {OfferNotActive} otherwise.
     modifier onlyWhileOfferActive() {
-        if (block.timestamp < OFFER_START || block.timestamp > OFFER_END) {
+        if (block.timestamp < OFFER_START || block.timestamp >= OFFER_END) {
             revert OfferNotActive();
         }
         _;
@@ -201,10 +201,11 @@ contract ERC20TokenOffer {
         OFFER_START = offerStart;
         OFFER_END = offerStart + offerDuration;
 
+        uint96 expiry = uint96(OFFER_END - 1);
         // Register an org and trust accepted CRC ids
         HUB.registerOrganization(orgName, 0);
         for (uint256 i; i < acceptedCRC.length;) {
-            HUB.trust(acceptedCRC[i], type(uint96).max);
+            HUB.trust(acceptedCRC[i], expiry);
             unchecked {
                 ++i;
             }
@@ -217,7 +218,7 @@ contract ERC20TokenOffer {
 
     /// @notice Returns true when the offer is in its active time window and tokens were deposited.
     function isOfferAvailable() external view returns (bool) {
-        return OFFER_START <= block.timestamp && OFFER_END >= block.timestamp && isOfferTokensDeposited;
+        return OFFER_START <= block.timestamp && OFFER_END > block.timestamp && isOfferTokensDeposited;
     }
 
     /// @notice Whether `account` has a positive weight (hence a non-zero limit).
@@ -267,7 +268,7 @@ contract ERC20TokenOffer {
     /// - Calls `ACCOUNT_WEIGHT_PROVIDER.finalizeWeights()` to freeze eligibility/weights.
     /// - Reverts with {OfferDepositClosed} if already deposited (re-deposit not allowed).
     function depositOfferTokens() external onlyOwner {
-        if (isOfferTokensDeposited || block.timestamp > OFFER_START) revert OfferDepositClosed();
+        if (isOfferTokensDeposited || block.timestamp >= OFFER_START) revert OfferDepositClosed();
 
         uint256 amount = getRequiredOfferTokenAmount();
 
@@ -286,7 +287,7 @@ contract ERC20TokenOffer {
     /// @dev Reverts with {OfferActive} if called before or during the offer window.
     /// @return balance The amount transferred to `OWNER` (may be zero).
     function withdrawUnclaimedOfferTokens() external onlyOwner returns (uint256 balance) {
-        if (OFFER_END > block.timestamp) revert OfferActive();
+        if (block.timestamp < OFFER_END) revert OfferActive();
         balance = TOKEN.balanceOf(address(this));
         if (balance > 0) TOKEN.safeTransfer(OWNER, balance);
     }
