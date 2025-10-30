@@ -287,7 +287,7 @@ contract ERC20TokenOfferCycle {
     /// - Safe-approves the next offer, which then pulls the funds in `depositOfferTokens(uint256 depositAmount)`.
     /// - Emits {NextOfferTokensDeposited}.
     function depositNextOfferTokens(uint256 depositAmount) external onlyAdmin {
-        (IERC20TokenOffer nextOffer,  ) = getNextOfferAndRequiredTokenAmount();
+        (IERC20TokenOffer nextOffer,) = getNextOfferAndRequiredTokenAmount();
         OFFER_TOKEN.safeTransferFrom(ADMIN, address(this), depositAmount);
         OFFER_TOKEN.safeApprove(address(nextOffer), depositAmount);
 
