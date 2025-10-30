@@ -4,6 +4,8 @@ pragma solidity ^0.8.28;
 interface IERC20TokenOffer {
     error ExceedsOfferLimit(uint256 availableLimit, uint256 value);
     error IneligibleAccount(address account);
+    error InsufficientTokenForClaim(uint256 availableTokenToClaim, uint256 value);
+    error InvalidDepositAmount();
     error InvalidTokenId(uint256 id);
     error OfferActive();
     error OfferDepositClosed();
@@ -26,8 +28,10 @@ interface IERC20TokenOffer {
     function TOKEN() external view returns (address);
     function TOKEN_PRICE_IN_CRC() external view returns (uint256);
     function WEIGHT_SCALE() external view returns (uint256);
+    function availableTokenToClaim() external view returns (uint256);
     function claimantCount() external view returns (uint256);
     function depositOfferTokens() external;
+    function depositOfferTokens(uint256 depositAmount) external;
     function getAccountOfferLimit(address account) external view returns (uint256);
     function getAvailableAccountOfferLimit(address account) external view returns (uint256);
     function getRequiredOfferTokenAmount() external view returns (uint256);

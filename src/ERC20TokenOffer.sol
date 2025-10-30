@@ -13,7 +13,9 @@ import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 /// @dev
 /// - The offer accepts CRC (ERC-1155) via Hub callbacks and sends out the ERC-20 token 1:price.
 /// - `BASE_OFFER_LIMIT_IN_CRC` is scaled by the per-account weight: limit(account) = base * weight / WEIGHT_SCALE.
-/// - Admin must pre-deposit the exact required token amount with `depositOfferTokens()` (finalizes weights).
+/// - Admin can 
+///        EITHER pre-deposit the exact required token amount with `depositOfferTokens()` (finalizes weights) 
+///        OR pre-deposit the token amount less than exact required token amounT by specifying depositAmount in `depositOfferTokens(uint256 depositAmount)`.
 /// - Availability requires: time window active AND tokens deposited.
 /// - If `CREATED_BY_CYCLE == true`, only the Cycle can initiate claims (enforced in callbacks).
 contract ERC20TokenOffer {
@@ -71,6 +73,13 @@ contract ERC20TokenOffer {
     /// @param amount The exact ERC-20 amount transferred in (in token decimals).
     event OfferTokensDeposited(uint256 indexed amount);
 
+    /// @notice Thrown when the deposit amount is 0
+    error InvalidDepositAmount();
+
+    /// @notice Thrown when the remaining token to claim is less than the value required to claim.
+    error InsufficientTokenForClaim(uint256 availableTokenToClaim, uint256 value);
+
+
     /*//////////////////////////////////////////////////////////////
                            Constants
     //////////////////////////////////////////////////////////////*/
@@ -109,6 +118,9 @@ contract ERC20TokenOffer {
 
     /// @notice Scale factor used by the weight provider (e.g., 10_000 for basis points).
     uint256 public immutable WEIGHT_SCALE;
+
+    /// @notice Remaining token hold by this contract that is available to claim
+    uint256 public availableTokenToClaim;
 
     /*//////////////////////////////////////////////////////////////
                             Storage
@@ -282,6 +294,32 @@ contract ERC20TokenOffer {
         emit OfferTokensDeposited(amount);
     }
 
+    /// @notice Deposits the `depositAmount` of ERC-20 token and finalizes weights.
+    /// @dev
+    /// - Requires prior ERC-20 approval from `OWNER` to this contract for at least the required amount.
+    /// - Calls `ACCOUNT_WEIGHT_PROVIDER.finalizeWeights()` to freeze eligibility/weights.
+    /// - Reverts with {OfferDepositClosed} if already deposited (re-deposit not allowed).
+    /// @param depositAmount amount to deposit, in case where depositAmount < exact required token amount, token to claim will be first come first serve. It is possible for depositAmount > exact required token amount.auto
+    function depositOfferTokens(uint256 depositAmount) external onlyOwner {
+        if (isOfferTokensDeposited || block.timestamp > OFFER_START) revert OfferDepositClosed();
+        if (depositAmount == 0) revert InvalidDepositAmount();
+
+        availableTokenToClaim = depositAmount;
+
+        // Freeze weight provider
+        ACCOUNT_WEIGHT_PROVIDER.finalizeWeights();
+
+        // Only transfer the amount available from the OWNER
+
+        // Pull ERC-20 from owner
+        TOKEN.safeTransferFrom(OWNER, address(this), availableTokenToClaim);
+
+        isOfferTokensDeposited = true;
+
+        emit OfferTokensDeposited(availableTokenToClaim);
+    }
+
+
     /// @notice Withdraws any unclaimed ERC-20 balance after the offer ends.
     /// @dev Reverts with {OfferActive} if called before or during the offer window.
     /// @return balance The amount transferred to `OWNER` (may be zero).
@@ -316,6 +354,9 @@ contract ERC20TokenOffer {
 
         // Convert CRC spend to ERC-20 amount at the configured price
         amount = value * (10 ** TOKEN_DECIMALS) / TOKEN_PRICE_IN_CRC;
+         if (amount > availableTokenToClaim) revert InsufficientTokenForClaim(availableTokenToClaim, amount);
+
+        availableTokenToClaim -= amount;
         TOKEN.safeTransfer(account, amount);
 
         emit OfferClaimed(account, value, amount);

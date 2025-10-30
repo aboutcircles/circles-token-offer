@@ -15,6 +15,7 @@ import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 /// - Each “offer period” is `OFFER_DURATION` seconds; `currentOfferId()` derives the active one from time.
 /// - `createNextOffer(...)` deploys the next offer (id = current + 1) via the factory and wires CRC trust.
 /// - `depositNextOfferTokens()` pre-funds the next offer and triggers its weight finalization (via the offer).
+/// - `depositNextOfferTokens(uint256 depositAmount)` pre-funds the next offer with specified deposit amount and triggers its weight finalization (via the offer).
 /// - Hub callbacks proxy inbound CRC to the active offer and proxy outbound CRC from the offer to the admin,
 ///   while tracking `totalClaimed` per beneficiary and enforcing optional soft-locks.
 contract ERC20TokenOfferCycle {
@@ -278,6 +279,21 @@ contract ERC20TokenOfferCycle {
         nextOffer.depositOfferTokens();
 
         emit NextOfferTokensDeposited(address(nextOffer), requiredAmount);
+    }
+
+    /// @notice Pre-funds the next offer with the exact ERC-20 amount and triggers its finalize-on-deposit flow.
+    /// @dev
+    /// - Requires prior ERC-20 approval from admin to this cycle for at least the required amount.
+    /// - Safe-approves the next offer, which then pulls the funds in `depositOfferTokens(uint256 depositAmount)`.
+    /// - Emits {NextOfferTokensDeposited}.
+    function depositNextOfferTokens(uint256 depositAmount) external onlyAdmin {
+        (IERC20TokenOffer nextOffer,  ) = getNextOfferAndRequiredTokenAmount();
+        OFFER_TOKEN.safeTransferFrom(ADMIN, address(this), depositAmount);
+        OFFER_TOKEN.safeApprove(address(nextOffer), depositAmount);
+
+        nextOffer.depositOfferTokens(depositAmount);
+
+        emit NextOfferTokensDeposited(address(nextOffer), depositAmount);
     }
 
     /// @notice Syncs Hub trust end-times for the *current* offer to its natural end.
